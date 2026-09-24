@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Quick install for itfin-mcp: clones or updates the repo, builds it and registers the MCP server
-# with Claude Code. Usage:
+# with Claude Code and Codex. Usage:
 #   curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --url https://acme.itfin.io [--browser chrome] [--work-start 10:00] [--timezone Europe/Kyiv]
 set -euo pipefail
@@ -56,9 +56,19 @@ if command -v claude >/dev/null; then
   echo "→ Registering the MCP server with Claude Code (user scope)"
   claude mcp remove itfin --scope user >/dev/null 2>&1 || true
   claude mcp add itfin --scope user "${ENV_ARGS[@]}" -- "$NODE" "$ENTRY"
-else
-  echo "! Claude Code CLI not found, so nothing was registered."
 fi
+
+if command -v codex >/dev/null; then
+  echo "→ Registering the MCP server with Codex"
+  codex mcp remove itfin >/dev/null 2>&1 || true
+  codex mcp add itfin "${ENV_ARGS[@]/#-e/--env}" -- "$NODE" "$ENTRY"
+  # itfin_login waits up to 3 minutes; Codex gives up on tool calls after 60 seconds by default.
+  sed -i '' '/^\[mcp_servers\.itfin\]$/a\
+tool_timeout_sec = 240
+' "${CODEX_HOME:-$HOME/.codex}/config.toml"
+fi
+
+command -v claude >/dev/null || command -v codex >/dev/null || echo "! Neither the Claude Code nor the Codex CLI was found, so nothing was registered."
 
 cat <<EOF
 
