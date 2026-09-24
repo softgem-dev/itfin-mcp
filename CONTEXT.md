@@ -1,6 +1,6 @@
 # ITFin Reporting Assistant
 
-A local MCP server that gives agents authenticated access to one user's ITFin workspace: projects and time entries. What to report, when, and how is decided by the calling agent, not by this server.
+A local MCP server that gives agents authenticated access to one user's ITFin workspace: projects, time entries and leave requests. What to report, when, and how is decided by the calling agent, not by this server.
 
 ## Language
 
@@ -38,3 +38,13 @@ _Avoid_: locked day, expired day
 **Reopen request**:
 A user's request to a manager to allow reporting on closed days again. It is only made after the user explicitly agrees, and a granted request is valid for a limited time.
 _Avoid_: unlock, open reporting
+
+### Leave
+
+**Leave type**:
+A kind of absence the workspace lets the user request, e.g. vacation, sick leave, paid or unpaid leave. Each has its own balance rules and list of reasons.
+_Avoid_: time off type, policy
+
+**Leave request**:
+A user's request to a manager to approve full days of leave of one leave type, with a reason and a comment. Like a reopen request, it is only made after the user explicitly agrees.
+_Avoid_: vacation request, sick note, day-off request
