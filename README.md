@@ -1,6 +1,6 @@
 # itfin-mcp
 
-A local MCP server that gives an agent (Claude Code, Claude Desktop) access to your ITFin workspace. It can read the projects you can report to, read your time entries, and create, update and delete them. It also looks after your ITFin token.
+A local MCP server that gives an agent (Claude Code, Claude Desktop, Codex or any other MCP client) access to your ITFin workspace. It can read the projects you can report to, read your time entries, and create, update and delete them. It also looks after your ITFin token.
 
 Deciding what to report is up to the agent's instructions, for example a daily scheduled task. The server only talks to ITFin. See `docs/adr/0001-mcp-is-a-thin-itfin-client.md`.
 
@@ -20,7 +20,7 @@ The script:
 1. clones or updates the repo in `~/.itfin-mcp`;
 2. builds it;
 3. asks for your workspace address, browser, start of the working day and timezone;
-4. registers the server with Claude Code. For Claude Desktop, it prints the config snippet to paste.
+4. registers the server with Claude Code and Codex, if their CLIs are installed. For Claude Desktop, it prints the config snippet to paste.
 
 Run it again to update. To skip the questions:
 
@@ -41,6 +41,69 @@ Register the server with Claude Code:
 claude mcp add itfin --scope user -e ITFIN_URL=https://<workspace>.itfin.io -- node /absolute/path/to/itfin-mcp/dist/index.js
 ```
 
+Register it with Codex (CLI, IDE extension and app share `~/.codex/config.toml`):
+
+```bash
+codex mcp add itfin --env ITFIN_URL=https://<workspace>.itfin.io -- node /absolute/path/to/itfin-mcp/dist/index.js
+```
+
+Or edit `~/.codex/config.toml` directly. Raise `tool_timeout_sec`, because `itfin_login` waits up to 3 minutes for you to sign in (the Codex default is 60 seconds):
+
+```toml
+[mcp_servers.itfin]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/itfin-mcp/dist/index.js"]
+tool_timeout_sec = 240
+
+[mcp_servers.itfin.env]
+ITFIN_URL = "https://<workspace>.itfin.io"
+ITFIN_BROWSER = "chrome"
+ITFIN_WORK_START = "10:00"
+ITFIN_TIMEZONE = "Europe/Kyiv"
+```
+
+Run `codex mcp list` to check it, then start a new Codex session.
+
+### Other MCP clients (OpenAI Agents SDK, Cursor, and similar)
+
+It is a local **stdio** server, so any client that can launch one works. Give it the command `node /absolute/path/to/itfin-mcp/dist/index.js` and the variables below. Most clients take the same JSON shape:
+
+```json
+{
+  "mcpServers": {
+    "itfin": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/itfin-mcp/dist/index.js"],
+      "env": { "ITFIN_URL": "https://<workspace>.itfin.io" }
+    }
+  }
+}
+```
+
+With the OpenAI Agents SDK (Python):
+
+```python
+from agents import Agent, Runner
+from agents.mcp import MCPServerStdio
+
+async with MCPServerStdio(
+    name="itfin",
+    params={
+        "command": "node",
+        "args": ["/absolute/path/to/itfin-mcp/dist/index.js"],
+        "env": {"ITFIN_URL": "https://<workspace>.itfin.io"},
+    },
+    client_session_timeout_seconds=240,  # itfin_login waits up to 3 minutes
+) as itfin:
+    agent = Agent(name="Timesheets", mcp_servers=[itfin])
+    result = await Runner.run(agent, "What did I report this week?")
+```
+
+Things to know for any client:
+- The server must run on the same Mac as you. It opens the login browser, reads the Keychain and schedules notifications. ChatGPT connectors and other hosted agents only reach remote MCP servers, so they can't use it.
+- Use absolute paths. GUI apps often don't see `nvm` or Homebrew shims on `PATH`.
+- If the client can't show confirmation forms (MCP elicitation), reopen requests are confirmed in chat with a one-time token instead (ADR 0003).
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `ITFIN_URL` | required | Workspace address, e.g. `https://acme.itfin.io` |
@@ -50,7 +113,7 @@ claude mcp add itfin --scope user -e ITFIN_URL=https://<workspace>.itfin.io -- n
 
 ## Logging in
 
-Ask Claude to log in to ITFin. A browser window opens on your workspace, and you sign in with Google. The server picks up the new ITFin token, stores it in the Keychain and schedules a macOS notification for the next relogin. ITFin tokens are valid for exactly 7 days and can't be refreshed.
+Ask your agent to log in to ITFin. A browser window opens on your workspace, and you sign in with Google. The server picks up the new ITFin token, stores it in the Keychain and schedules a macOS notification for the next relogin. ITFin tokens are valid for exactly 7 days and can't be refreshed.
 
 The login browser uses its own profile (`~/Library/Application Support/itfin-mcp/browser-profile`), so next time you only pick your Google account. The server only watches for the ITFin token cookie. It never clicks or types anything in the browser.
 
