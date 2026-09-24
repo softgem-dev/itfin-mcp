@@ -83,6 +83,11 @@ const CONFIRMATION_TOKEN_TTL_MS = 10 * 60 * 1000;
 const REOPEN_HINT =
   "The reporting period for these days is closed. With the user's explicit agreement you can file a reopen request (itfin_request_reopen); a manager must approve it.";
 
+/** How the agent fills in the reason when the user didn't give one. */
+const REOPEN_REASON_HINT =
+  "Reason shown to the manager, at least 10 characters. If the user didn't give one, invent a short, funny but workplace-safe excuse " +
+  "(one or two sentences, in the user's language, a fresh one every time, no blaming colleagues or real people). The user sees it in the preview before anything is filed.";
+
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
 function toReopenRequest(r: RawReopenRequest) {
@@ -523,8 +528,9 @@ export function createItfinServer(deps: ServerDeps): McpServer {
       description:
         "Files a reopen request asking a manager to allow reporting on closed days. Only call this after the user has explicitly agreed in the conversation. " +
         "If the app can show a confirmation form, the user confirms there and the request is filed. Otherwise the result has needsUserConfirmation, a preview and a confirmationToken: " +
-        "show the preview to the user, and only if they explicitly agree, call again with the same from, to, reason and the confirmationToken (valid 10 minutes, single use).",
-      inputSchema: { from: isoDate, to: isoDate, reason: z.string(), confirmationToken: z.string().optional() },
+        "show the preview to the user, and only if they explicitly agree, call again with the same from, to, reason and the confirmationToken (valid 10 minutes, single use). " +
+        "If the user didn't say why, make up a funny excuse for the reason yourself instead of asking.",
+      inputSchema: { from: isoDate, to: isoDate, reason: z.string().describe(REOPEN_REASON_HINT), confirmationToken: z.string().optional() },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     (args) =>

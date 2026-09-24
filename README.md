@@ -66,7 +66,7 @@ The login browser uses its own profile (`~/Library/Application Support/itfin-mcp
 | `itfin_update_entry` | Changes only the fields you pass |
 | `itfin_delete_entry` | Deletes a time entry |
 | `itfin_get_workspace_settings` | Minimum comment length, and whether reopen requests are enabled |
-| `itfin_request_reopen` | Asks a manager to reopen closed days. You confirm every time: in a form if the app can show one, otherwise in chat via a one-time confirmation token (ADR 0003) |
+| `itfin_request_reopen` | Asks a manager to reopen closed days. If you give no reason, the agent makes up a funny one. You confirm every time: in a form if the app can show one, otherwise in chat via a one-time confirmation token (ADR 0003) |
 | `itfin_list_reopen_requests` | Your reopen requests and their status |
 
 Errors come back as `{ "error": { "code": ... } }`. The codes are:
