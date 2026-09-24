@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -23,6 +24,8 @@ export interface ServerDeps {
   /** Opens the login browser; defaults to the configured Chromium-based browser. */
   startLogin?: (maxWaitMs: number) => Promise<LoginSession>;
   reminders?: ReminderScheduler;
+  /** A confirmation-form answer faster than this means the app never showed the form. */
+  instantAnswerMs?: number;
 }
 
 /** How long itfin_login blocks before it keeps waiting in the background. */
@@ -74,6 +77,8 @@ interface RawReopenRequest {
 }
 
 const REOPEN_REASON_MIN = 10;
+/** How long a chat-confirmation token for a reopen request stays valid. */
+const CONFIRMATION_TOKEN_TTL_MS = 10 * 60 * 1000;
 
 const REOPEN_HINT =
   "The reporting period for these days is closed. With the user's explicit agreement you can file a reopen request (itfin_request_reopen); a manager must approve it.";
@@ -122,6 +127,7 @@ function toEntry(e: RawEntry) {
 
 export function createItfinServer(deps: ServerDeps): McpServer {
   const { config, clock, tokenStore } = deps;
+  const instantAnswerMs = deps.instantAnswerMs ?? 1000;
   const server = new McpServer({ name: "itfin-mcp", version: "0.1.0" });
 
   type TokenState =
@@ -309,6 +315,85 @@ export function createItfinServer(deps: ServerDeps): McpServer {
       }),
   );
 
+  type ReopenRequestInput = { from: string; to: string; reason: string };
+  const pendingConfirmations = new Map<string, { request: ReopenRequestInput; expiresAt: number }>();
+
+  async function fileReopenRequest(request: ReopenRequestInput) {
+    const body = { RequestType: "OpenReporting", EmployeeId: await employeeId(), DateFrom: request.from, DateTo: request.to, Comment: request.reason };
+    const res = await itfin.request<{ Id?: number } | undefined>("POST", "/v1/requests/open-reporting", { body });
+    return { requested: true, id: res?.Id };
+  }
+
+  /**
+   * Asks the user through the app's confirmation form. Returns "unavailable" when the app can't show
+   * forms, or answers faster than a person could (it advertised forms but never showed one).
+   */
+  async function confirmWithForm(request: ReopenRequestInput): Promise<"confirmed" | "unavailable"> {
+    if (!server.server.getClientCapabilities()?.elicitation) return "unavailable";
+    const started = performance.now();
+    let answer;
+    try {
+      answer = await server.server.elicitInput({
+        message: `File an ITFin reopen request for ${request.from} – ${request.to}? Your manager will be asked to approve it.\nReason: ${request.reason}`,
+        requestedSchema: {
+          type: "object",
+          properties: { confirm: { type: "boolean", title: "Send the reopen request", default: true } },
+        },
+      });
+    } catch (err) {
+      console.error(`[itfin-mcp] confirmation form failed: ${(err as Error).message}`);
+      return "unavailable";
+    }
+    const elicitation = {
+      action: answer.action,
+      confirm: answer.content?.confirm,
+      elapsedMs: Math.round(performance.now() - started),
+    };
+    console.error(`[itfin-mcp] reopen confirmation: ${JSON.stringify(elicitation)}`);
+    // No person answers this fast: the app replied without showing the form, so its answer (even an
+    // accept) is not the user's consent.
+    if (elicitation.elapsedMs < instantAnswerMs) return "unavailable";
+    if (answer.action === "accept" && answer.content?.confirm !== false) return "confirmed";
+    if (answer.action === "cancel") {
+      throw new ToolError("CONFIRMATION_CANCELLED", "The user dismissed the confirmation. Nothing was filed.", { elicitation });
+    }
+    throw new ToolError("CONFIRMATION_DECLINED", "The user did not confirm the reopen request. Nothing was filed.", { elicitation });
+  }
+
+  function issueConfirmationToken(request: ReopenRequestInput) {
+    const now = clock.now().getTime();
+    for (const [token, p] of pendingConfirmations) if (p.expiresAt <= now) pendingConfirmations.delete(token);
+    const confirmationToken = randomUUID();
+    const expiresAt = now + CONFIRMATION_TOKEN_TTL_MS;
+    pendingConfirmations.set(confirmationToken, { request, expiresAt });
+    return {
+      requested: false,
+      needsUserConfirmation: true,
+      preview: request,
+      confirmationToken,
+      confirmationExpiresAt: new Date(expiresAt).toISOString(),
+      instructions:
+        "Nothing was filed. Show the preview to the user and ask whether to send it to their manager. Only if they explicitly agree, call itfin_request_reopen again with the same from, to, reason and this confirmationToken.",
+    };
+  }
+
+  function redeemConfirmationToken(token: string, request: ReopenRequestInput): void {
+    const pending = pendingConfirmations.get(token);
+    pendingConfirmations.delete(token);
+    const matches =
+      pending &&
+      pending.expiresAt > clock.now().getTime() &&
+      pending.request.from === request.from &&
+      pending.request.to === request.to &&
+      pending.request.reason === request.reason;
+    if (!matches) {
+      throw new ToolError(
+        "CONFIRMATION_INVALID",
+        "The confirmation token is unknown, expired, already used, or was issued for different dates or reason. Call without a token to get a new one.",
+      );
+    }
+  }
+
   server.registerTool(
     "itfin_create_entry",
     {
@@ -436,8 +521,10 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     {
       title: "Request to reopen closed days",
       description:
-        "Files a reopen request asking a manager to allow reporting on closed days. Only call this after the user has explicitly agreed in the conversation. The server also asks the user to confirm before anything is sent.",
-      inputSchema: { from: isoDate, to: isoDate, reason: z.string() },
+        "Files a reopen request asking a manager to allow reporting on closed days. Only call this after the user has explicitly agreed in the conversation. " +
+        "If the app can show a confirmation form, the user confirms there and the request is filed. Otherwise the result has needsUserConfirmation, a preview and a confirmationToken: " +
+        "show the preview to the user, and only if they explicitly agree, call again with the same from, to, reason and the confirmationToken (valid 10 minutes, single use).",
+      inputSchema: { from: isoDate, to: isoDate, reason: z.string(), confirmationToken: z.string().optional() },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     (args) =>
@@ -449,32 +536,14 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         if (!(await workspaceSettings()).reopenRequestsEnabled) {
           throw new ToolError("VALIDATION", "Reopen requests are disabled in this ITFin workspace.");
         }
-        if (!server.server.getClientCapabilities()?.elicitation) {
-          throw new ToolError(
-            "CONFIRMATION_UNAVAILABLE",
-            "This app can't show a confirmation prompt, so no reopen request was filed. The user can file it in the ITFin web app.",
-          );
+        const request = { from: args.from, to: args.to, reason: args.reason };
+        if (args.confirmationToken !== undefined) {
+          redeemConfirmationToken(args.confirmationToken, request);
+          return fileReopenRequest(request);
         }
-        const answer = await server.server.elicitInput({
-          message: `File an ITFin reopen request for ${args.from} – ${args.to}? Your manager will be asked to approve it.\nReason: ${args.reason}`,
-          requestedSchema: {
-            type: "object",
-            properties: { confirm: { type: "boolean", title: "Send the reopen request", default: false } },
-            required: ["confirm"],
-          },
-        });
-        if (answer.action !== "accept" || answer.content?.confirm !== true) {
-          throw new ToolError("CONFIRMATION_DECLINED", "The user did not confirm the reopen request. Nothing was filed.");
-        }
-        const body = {
-          RequestType: "OpenReporting",
-          EmployeeId: await employeeId(),
-          DateFrom: args.from,
-          DateTo: args.to,
-          Comment: args.reason,
-        };
-        const res = await itfin.request<{ Id?: number } | undefined>("POST", "/v1/requests/open-reporting", { body });
-        return { requested: true, id: res?.Id };
+        const confirmation = await confirmWithForm(request);
+        if (confirmation === "confirmed") return fileReopenRequest(request);
+        return issueConfirmationToken(request);
       }),
   );
 
