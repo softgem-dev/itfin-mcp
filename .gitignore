@@ -1,0 +1,5 @@
+.idea/
+docs/research/itfin-api.md
+node_modules/
+dist/
+api-docs.json
