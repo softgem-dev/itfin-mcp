@@ -54,6 +54,31 @@ describe("itfin_get_entries", () => {
     expect(h.itfin.requests).toHaveLength(1);
   });
 
+  it("marks the ITFin token dead after a 401, so later calls fail without calling ITFin", async () => {
+    await loggedIn();
+    h.itfin.on("GET /api/v1/tracking", { status: 401, body: { message: "invalid signature" } });
+    await h.call("itfin_get_entries", { from: "2026-09-21", to: "2026-09-27" });
+
+    const again = await h.call("itfin_get_entries", { from: "2026-09-21", to: "2026-09-27" });
+    expect(again.data.error).toMatchObject({ code: "AUTH_REQUIRED", expiresAt: "2026-10-01T06:00:00.000Z" });
+    expect(h.itfin.requests).toHaveLength(1);
+    expect((await h.call("itfin_auth_status")).data).toMatchObject({ valid: false, reason: "rejected" });
+  });
+
+  it("fails with AUTH_REQUIRED when the stored ITFin token is malformed", async () => {
+    h = await startHarness({ now: "2026-09-24T09:00:00Z" });
+    await h.store.save("not-a-jwt");
+    const res = await h.call("itfin_get_entries", { from: "2026-09-21", to: "2026-09-27" });
+    expect(res.data.error.code).toBe("AUTH_REQUIRED");
+  });
+
+  it("reports today as future, not closed, when it is not reportable", async () => {
+    await loggedIn();
+    h.itfin.on("GET /api/v1/tracking", trackingRoute({ today: "2026-09-24", days: { "2026-09-24": { isEditable: false } } }));
+    const res = await h.call("itfin_get_entries", { from: "2026-09-24", to: "2026-09-24" });
+    expect(res.data.days[0].status).toBe("future");
+  });
+
   it("retries 5xx responses before giving up with the ITFin message", async () => {
     await loggedIn();
     h.itfin.on("GET /api/v1/tracking", { status: 503, body: { message: "Service unavailable" } });

@@ -66,6 +66,15 @@ describe("relogin reminder time", () => {
     expect(res.data.nextReminderAt).toBe("2026-09-30T07:00:00.000Z");
   });
 
+  it("comes before the point where the ITFin token counts as expired", async () => {
+    // Logged in Mon 10:03 Kyiv -> expires next Mon 10:03, treated as expired from 09:58 -> remind Fri 10:00.
+    h = await startHarness({ now: "2026-09-28T07:03:00Z" });
+    h.itfin.on("GET /api/v1/tracking", trackingRoute({ today: "2026-09-28" }));
+    await h.store.save(makeJwt({ iat: sec("2026-09-28T07:03:00Z"), exp: sec("2026-10-05T07:03:00Z") }));
+    const res = await h.call("itfin_auth_status");
+    expect(res.data.nextReminderAt).toBe("2026-10-02T07:00:00.000Z");
+  });
+
   it("is due now when the reminder time has already passed", async () => {
     // Expires Thu 17:04 Kyiv; it is Thu 12:00 Kyiv, past 10:00 -> remind now.
     h = await startHarness({ now: "2026-10-01T09:00:00Z" });

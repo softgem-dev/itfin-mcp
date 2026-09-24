@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { DateTime } from "luxon";
 import { z } from "zod";
 import type { Clock } from "./clock.js";
 import type { Config } from "./config.js";
@@ -96,6 +95,16 @@ function findSetting(obj: unknown, key: string): unknown {
   return undefined;
 }
 
+/** When an ITFin token stops being usable: its expiry minus the clock-skew margin. */
+function usableUntil(expiresAt: Date): Date {
+  return new Date(expiresAt.getTime() - EXPIRY_SKEW_MS);
+}
+
+/** ITFin keeps a time entry's duration both as minutes and as decimal hours. */
+function duration(minutes: number) {
+  return { MinutesInt: minutes, InternalTime: String(minutes / 60) };
+}
+
 function toEntry(e: RawEntry) {
   return {
     id: e.Id,
@@ -115,19 +124,39 @@ export function createItfinServer(deps: ServerDeps): McpServer {
   const { config, clock, tokenStore } = deps;
   const server = new McpServer({ name: "itfin-mcp", version: "0.1.0" });
 
-  async function validToken(): Promise<string> {
+  type TokenState =
+    | { valid: true; token: string; email?: string; expiresAt: Date }
+    | { valid: false; reason: "no_token" | "malformed" | "rejected" | "expired"; email?: string; expiresAt?: Date };
+
+  /** The stored ITFin token and whether it can still be used. */
+  async function tokenState(): Promise<TokenState> {
     const stored = await tokenStore.load();
-    if (!stored) throw new ToolError("AUTH_REQUIRED", "No ITFin token. Ask the user to log in (itfin_login).");
-    const { exp } = decodeToken(stored.token);
-    if (exp * 1000 - EXPIRY_SKEW_MS <= clock.now().getTime()) {
-      throw new ToolError("AUTH_REQUIRED", "The ITFin token has expired. Ask the user to log in (itfin_login).", {
-        expiresAt: new Date(exp * 1000).toISOString(),
-      });
+    if (!stored) return { valid: false, reason: "no_token" };
+    let claims;
+    try {
+      claims = decodeToken(stored.token);
+    } catch {
+      return { valid: false, reason: "malformed" };
     }
-    return stored.token;
+    const info = { email: claims.Email, expiresAt: new Date(claims.exp * 1000) };
+    if (stored.rejected) return { valid: false, reason: "rejected", ...info };
+    if (usableUntil(info.expiresAt) <= clock.now()) return { valid: false, reason: "expired", ...info };
+    return { valid: true, token: stored.token, ...info };
   }
 
-  const itfin = new ItfinClient(config.workspaceUrl, validToken, deps.retryDelayMs ?? 500);
+  async function validToken(): Promise<string> {
+    const state = await tokenState();
+    if (state.valid) return state.token;
+    const why = { no_token: "No ITFin token.", malformed: "The stored ITFin token is unreadable.", rejected: "ITFin rejected the ITFin token.", expired: "The ITFin token has expired." }[state.reason];
+    throw new ToolError("AUTH_REQUIRED", `${why} Ask the user to log in (itfin_login).`, { expiresAt: state.expiresAt?.toISOString() });
+  }
+
+  async function markRejected(token: string): Promise<void> {
+    const stored = await tokenStore.load();
+    if (stored?.token === token) await tokenStore.save(token, { ...stored, rejected: true });
+  }
+
+  const itfin = new ItfinClient(config.workspaceUrl, validToken, deps.retryDelayMs ?? 500, markRejected);
   const reminders = deps.reminders ?? new LaunchdReminderScheduler();
   const startLogin =
     deps.startLogin ?? ((maxWaitMs: number) => startBrowserLogin({ workspaceUrl: config.workspaceUrl, browser: config.browser, maxWaitMs }));
@@ -160,14 +189,13 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     return day;
   }
 
-  async function workspaceSettings(): Promise<{ minCommentLength: number; reopenRequestsEnabled: boolean; raw: unknown }> {
+  async function workspaceSettings(): Promise<{ minCommentLength: number; reopenRequestsEnabled: boolean }> {
     const host = new URL(config.workspaceUrl).host;
-    const raw = await itfin.get<unknown>(`/v1/auth/workspaces/${host}`, undefined, true);
+    const raw = await itfin.request<unknown>("GET", `/v1/auth/workspaces/${host}`, { anonymous: true });
     const reopen = findSetting(raw, "OpenReportingApprovals") as { Enabled?: boolean } | undefined;
     return {
       minCommentLength: Number(findSetting(raw, "TrackingMinCommentLength") ?? 0),
       reopenRequestsEnabled: Boolean(reopen?.Enabled),
-      raw,
     };
   }
 
@@ -183,10 +211,12 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     return itfin.get<RawReopenRequest[]>("/v1/requests/my", { "filter[requestType]": "OpenReporting", page: 1, size: 50 });
   }
 
-  async function dayClosed(date: string, message = "Reporting is closed for this day."): Promise<ToolError> {
-    const covering = (await reopenRequests().catch(() => []))
-      .map(toReopenRequest)
-      .filter((r) => r.from <= date && date <= r.to);
+  async function reopenRequestsCovering(date: string) {
+    return (await reopenRequests()).map(toReopenRequest).filter((r) => r.from <= date && date <= r.to);
+  }
+
+  async function closedDayError(date: string, message = "Reporting is closed for this day."): Promise<ToolError> {
+    const covering = await reopenRequestsCovering(date).catch(() => []);
     return new ToolError("DAY_CLOSED", message, { closedDates: [date], reopenRequests: covering, hint: REOPEN_HINT });
   }
 
@@ -195,10 +225,8 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     const status = dayStatus(day ?? (await getDay(date)));
     if (status === "open") return;
     if (status === "future") throw new ToolError("DAY_IN_FUTURE", `${date} is not reportable yet.`);
-    const approved = (await reopenRequests())
-      .map(toReopenRequest)
-      .some((r) => r.status === "Approved" && r.from <= date && date <= r.to);
-    if (!approved) throw await dayClosed(date);
+    const approved = (await reopenRequestsCovering(date)).some((r) => r.status === "Approved");
+    if (!approved) throw await closedDayError(date);
   }
 
   async function assertComment(comment: string): Promise<void> {
@@ -209,11 +237,11 @@ export function createItfinServer(deps: ServerDeps): McpServer {
   }
 
   /** Runs a write, turning ITFin's closed-day rejection into a DAY_CLOSED error with details. */
-  async function write<T>(date: string, fn: () => Promise<T>): Promise<T> {
+  async function withClosedDayDetails<T>(date: string, fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
     } catch (err) {
-      if (err instanceof ToolError && err.code === "DAY_CLOSED" && !err.details.closedDates) throw await dayClosed(date, err.message);
+      if (err instanceof ToolError && err.code === "DAY_CLOSED" && !err.details.closedDates) throw await closedDayError(date, err.message);
       throw err;
     }
   }
@@ -227,7 +255,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
 
   function dayStatus(day: RawDay): DayStatus {
     if (day.isEditable) return "open";
-    return day.Date <= todayIn(clock.now(), config.timezone) ? "closed" : "future";
+    return day.Date < todayIn(clock.now(), config.timezone) ? "closed" : "future";
   }
 
   server.registerTool(
@@ -306,12 +334,11 @@ export function createItfinServer(deps: ServerDeps): McpServer {
           ClientAgreementId: args.clientAgreementId,
           TaskId: args.taskId ?? null,
           TaskReference: null,
-          MinutesInt: args.minutes,
-          InternalTime: String(args.minutes / 60),
+          ...duration(args.minutes),
           Comment: args.comment,
           IsNonBillable: false,
         };
-        const res = await write(args.date, () => itfin.request<{ Id: number }>("POST", "/v1/tracking", { body }));
+        const res = await withClosedDayDetails(args.date, () => itfin.request<{ Id: number }>("POST", "/v1/tracking", { body }));
         return { id: res.Id };
       }),
   );
@@ -340,18 +367,25 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         if (args.newDate && args.newDate !== args.date) await assertReportable(args.newDate);
         if (args.comment !== undefined) await assertComment(args.comment);
         const minutes = args.minutes ?? entry.MinutesInt;
-        const { ExternalId: _id, ExternalTool: _tool, ...rest } = entry;
+        // Like the web app: send the whole entry minus the integration fields.
+        const { ExternalId: _id, ExternalTool: _tool, ...entryFields } = entry;
+        const rest: Record<string, unknown> = entryFields;
+        const agreementChanged = args.clientAgreementId !== undefined && args.clientAgreementId !== entry.ClientAgreementId;
+        if (agreementChanged) {
+          // Project fields describe the old agreement; ITFin derives them from ClientAgreementId.
+          delete rest.ProjectId;
+          delete rest.ProjectName;
+        }
         const body = {
           ...rest,
           Date: args.newDate ?? entry.Date,
           ClientAgreementId: args.clientAgreementId ?? entry.ClientAgreementId,
           TaskId: args.taskId === undefined ? entry.TaskId : args.taskId,
-          MinutesInt: minutes,
-          InternalTime: String(minutes / 60),
+          ...duration(minutes),
           Comment: args.comment ?? entry.Comment,
           IsNonBillable: !entry.MinutesExt,
         };
-        const res = await write(body.Date, () => itfin.request<{ Id: number }>("PUT", `/v1/tracking/${args.id}`, { body }));
+        const res = await withClosedDayDetails(body.Date, () => itfin.request<{ Id: number }>("PUT", `/v1/tracking/${args.id}`, { body }));
         return { id: res.Id };
       }),
   );
@@ -368,7 +402,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
       handle(async () => {
         const { day } = await findEntry(args.id, args.date);
         await assertReportable(args.date, day);
-        await write(args.date, () => itfin.request("DELETE", `/v1/tracking/${args.id}`));
+        await withClosedDayDetails(args.date, () => itfin.request("DELETE", `/v1/tracking/${args.id}`));
         return { deleted: args.id };
       }),
   );
@@ -484,14 +518,10 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     },
     () =>
       handle(async () => {
-        const stored = await tokenStore.load();
-        if (!stored) return { valid: false, reason: "no_token" };
-        const claims = decodeToken(stored.token);
-        const expiresAt = new Date(claims.exp * 1000);
-        const now = clock.now();
-        const base = { email: claims.Email, expiresAt: expiresAt.toISOString() };
-        if (expiresAt.getTime() - EXPIRY_SKEW_MS <= now.getTime()) return { valid: false, reason: "expired", ...base };
-        const reminder = await nextReminder(expiresAt, now);
+        const state = await tokenState();
+        const base = { email: state.email, expiresAt: state.expiresAt?.toISOString() };
+        if (!state.valid) return { valid: false, reason: state.reason, ...base };
+        const reminder = await nextReminder(state.expiresAt, clock.now());
         return { valid: true, ...base, nextReminderAt: reminder?.toISOString() };
       }),
   );
@@ -500,13 +530,11 @@ export function createItfinServer(deps: ServerDeps): McpServer {
   async function nextReminder(expiresAt: Date, now: Date): Promise<Date | undefined> {
     const days = new Map<string, DayFlags>();
     try {
-      const from = DateTime.fromJSDate(now, { zone: config.timezone }).toISODate()!;
-      const to = DateTime.fromJSDate(expiresAt, { zone: config.timezone }).toISODate()!;
-      for (const d of await getDays(from, to)) days.set(d.Date, { isHoliday: d.isHoliday, isWeekend: d.isWeekend });
+      for (const d of await getDays(todayIn(now, config.timezone), todayIn(expiresAt, config.timezone))) days.set(d.Date, { isHoliday: d.isHoliday, isWeekend: d.isWeekend });
     } catch {
       // Fall back to Monday–Friday.
     }
-    return reloginReminderAt({ expiresAt, now, config, days });
+    return reloginReminderAt({ deadline: usableUntil(expiresAt), now, config, days });
   }
 
   return server;

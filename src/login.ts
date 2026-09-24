@@ -17,8 +17,6 @@ const TOKEN_COOKIE = "itfin-jwt";
 export interface LoginSession {
   /** Resolves with the new ITFin token once the user has signed in. */
   token: Promise<string>;
-  /** Stops waiting and closes the login browser. */
-  cancel(): void;
 }
 
 /**
@@ -39,12 +37,6 @@ export async function startBrowserLogin(opts: { workspaceUrl: string; browser: s
     { stdio: "ignore", detached: false },
   );
 
-  let cancelled = false;
-  const cancel = () => {
-    cancelled = true;
-    closeBrowser(child, port);
-  };
-
   const token = (async () => {
     const page = await connectToPage(port, opts.maxWaitMs);
     try {
@@ -53,20 +45,20 @@ export async function startBrowserLogin(opts: { workspaceUrl: string; browser: s
       await page.send("Network.deleteCookies", { name: TOKEN_COOKIE, url: opts.workspaceUrl });
       await page.send("Page.navigate", { url: opts.workspaceUrl });
       const deadline = Date.now() + opts.maxWaitMs;
-      while (!cancelled && Date.now() < deadline) {
+      while (Date.now() < deadline) {
         const { cookies } = (await page.send("Network.getCookies", { urls: [opts.workspaceUrl] })) as { cookies: { name: string; value: string }[] };
         const cookie = cookies.find((c) => c.name === TOKEN_COOKIE);
         if (cookie?.value) return decodeURIComponent(cookie.value).replace(/^Bearer\s+/i, "");
         await sleep(1000);
       }
-      throw new Error(cancelled ? "Login was cancelled." : "Timed out waiting for the ITFin login.");
+      throw new Error("Timed out waiting for the ITFin login.");
     } finally {
       page.close();
       closeBrowser(child, port);
     }
   })();
 
-  return { token, cancel };
+  return { token };
 }
 
 interface CdpPage {

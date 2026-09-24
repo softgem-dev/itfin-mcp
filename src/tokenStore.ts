@@ -7,6 +7,8 @@ export interface StoredToken {
   token: string;
   /** Employee id of the logged-in user, cached after the first lookup. */
   employeeId?: number;
+  /** Set when ITFin answered 401 to this token; it stays dead until the next login. */
+  rejected?: boolean;
 }
 
 export interface TokenStore {

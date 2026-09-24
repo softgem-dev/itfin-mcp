@@ -97,7 +97,6 @@ export async function startHarness(opts: { now: string; config?: Partial<Config>
     workspaceUrl: itfin.url,
     browser: "chrome",
     workStart: "10:00",
-    workEnd: "19:00",
     timezone: "Europe/Kyiv",
     ...opts.config,
   };

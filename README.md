@@ -27,7 +27,7 @@ claude mcp add itfin --scope user -e ITFIN_URL=https://<workspace>.itfin.io -- n
 |---|---|---|
 | `ITFIN_URL` | required | Workspace address, e.g. `https://acme.itfin.io` |
 | `ITFIN_BROWSER` | `chrome` | `chrome`, `edge`, `brave`, `arc`, `chromium` or a path to the browser binary |
-| `ITFIN_WORK_HOURS` | `10:00-19:00` | Working time, used for relogin reminders |
+| `ITFIN_WORK_START` | `10:00` | Start of working time; relogin reminders fire then |
 | `ITFIN_TIMEZONE` | system timezone | IANA timezone for working time and "today" |
 
 ## Logging in

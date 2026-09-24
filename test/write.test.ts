@@ -77,6 +77,14 @@ describe("itfin_create_entry", () => {
     expect(res.data.error).toMatchObject({ code: "DAY_CLOSED", closedDates: [TODAY] });
   });
 
+  it("does not retry a failed POST, so a time entry is never created twice", async () => {
+    await loggedIn();
+    h.itfin.on("POST /api/v1/tracking", { status: 503, body: { message: "Service unavailable" } });
+    const res = await h.call("itfin_create_entry", validEntry);
+    expect(res.data.error.code).toBe("ITFIN_ERROR");
+    expect(h.itfin.writes()).toHaveLength(1);
+  });
+
   it("reports a future day as DAY_IN_FUTURE, not DAY_CLOSED", async () => {
     await loggedIn();
     const res = await h.call("itfin_create_entry", { ...validEntry, date: "2026-09-25" });
@@ -108,6 +116,15 @@ describe("itfin_update_entry", () => {
       IsNonBillable: false,
     });
     expect(put!.body).not.toHaveProperty("ExternalTool");
+  });
+
+  it("does not send the old project when the agreement changes", async () => {
+    await loggedIn({ "2026-09-22": { log: [existing] } });
+    h.itfin.on("PUT /api/v1/tracking/42", { body: { Id: 42 } });
+    await h.call("itfin_update_entry", { id: 42, date: "2026-09-22", clientAgreementId: 5002 });
+    const [put] = h.itfin.writes();
+    expect(put!.body).toMatchObject({ ClientAgreementId: 5002 });
+    expect(put!.body).not.toHaveProperty("ProjectId");
   });
 
   it("fails with NOT_FOUND when the entry is not on the given date", async () => {

@@ -8,10 +8,10 @@ export interface DayFlags {
 
 /**
  * The relogin reminder: the start of working time on the last working day whose working time starts
- * before the ITFin token expires. If that moment has already passed, the reminder is due now.
+ * before `deadline` (when the ITFin token stops being usable). If that moment has passed, it is due now.
  */
-export function reloginReminderAt(opts: { expiresAt: Date; now: Date; config: Config; days: Map<string, DayFlags> }): Date | undefined {
-  const { expiresAt, now, config, days } = opts;
+export function reloginReminderAt(opts: { deadline: Date; now: Date; config: Config; days: Map<string, DayFlags> }): Date | undefined {
+  const { deadline: expiresAt, now, config, days } = opts;
   if (now >= expiresAt) return undefined;
   const [hour = 10, minute = 0] = config.workStart.split(":").map(Number);
   const today = DateTime.fromJSDate(now, { zone: config.timezone }).startOf("day");
