@@ -66,7 +66,7 @@ The login browser uses its own profile (`~/Library/Application Support/itfin-mcp
 | `itfin_update_entry` | Changes only the fields you pass |
 | `itfin_delete_entry` | Deletes a time entry |
 | `itfin_get_workspace_settings` | Minimum comment length, and whether reopen requests are enabled |
-| `itfin_request_reopen` | Asks a manager to reopen closed days. The server asks you to confirm every time |
+| `itfin_request_reopen` | Asks a manager to reopen closed days. You confirm every time: in a form if the app can show one, otherwise in chat via a one-time confirmation token (ADR 0003) |
 | `itfin_list_reopen_requests` | Your reopen requests and their status |
 
 Errors come back as `{ "error": { "code": ... } }`. The codes are:
@@ -76,7 +76,8 @@ Errors come back as `{ "error": { "code": ... } }`. The codes are:
 - `DAY_IN_FUTURE`: the day can't be reported yet.
 - `VALIDATION`: the input was rejected before sending.
 - `NOT_FOUND`: the entry doesn't exist.
-- `CONFIRMATION_DECLINED` / `CONFIRMATION_UNAVAILABLE`: no reopen request was filed.
+- `CONFIRMATION_DECLINED` / `CONFIRMATION_CANCELLED`: you declined or dismissed the confirmation form, so no reopen request was filed.
+- `CONFIRMATION_INVALID`: the chat confirmation token is unknown, expired, already used, or doesn't match the request.
 - `ITFIN_ERROR`: any other error, with ITFin's message.
 
 ## Development

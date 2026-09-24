@@ -78,6 +78,11 @@ export const sec = (iso: string) => Math.floor(Date.parse(iso) / 1000);
 
 export const TEST_KEYCHAIN_SERVICE = "itfin-mcp-test";
 
+/** Answers faster than this count as "the client answered without showing the form". */
+const INSTANT_ANSWER_MS = 40;
+/** A simulated human answer time, comfortably above INSTANT_ANSWER_MS. */
+export const HUMAN_MS = 80;
+
 export interface Harness {
   itfin: FakeItfin;
   client: Client;
@@ -86,6 +91,8 @@ export interface Harness {
   call(name: string, args?: Record<string, unknown>): Promise<{ isError: boolean; data: any }>;
   /** Answer the next confirmation prompts from the server with this action. */
   elicitAnswer: { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
+  /** How long the simulated user takes to answer; 0 mimics a client that answers without showing the form. */
+  elicitDelayMs: number;
   close(): Promise<void>;
 }
 
@@ -102,7 +109,7 @@ export async function startHarness(opts: { now: string; config?: Partial<Config>
   };
   const store = new KeychainTokenStore(TEST_KEYCHAIN_SERVICE, config.workspaceUrl);
   await store.clear();
-  const server = createItfinServer({ config, clock: { now: () => now }, tokenStore: store, retryDelayMs: 0 });
+  const server = createItfinServer({ config, clock: { now: () => now }, tokenStore: store, retryDelayMs: 0, instantAnswerMs: INSTANT_ANSWER_MS });
 
   const client = new Client(
     { name: "test-client", version: "0" },
@@ -112,7 +119,8 @@ export async function startHarness(opts: { now: string; config?: Partial<Config>
     itfin,
     client,
     store,
-    elicitAnswer: { action: "accept", content: { confirm: true } },
+    elicitAnswer: { action: "accept" },
+    elicitDelayMs: HUMAN_MS,
     setNow(iso) {
       now = new Date(iso);
     },
@@ -128,7 +136,10 @@ export async function startHarness(opts: { now: string; config?: Partial<Config>
     },
   };
   if (opts.elicitation !== false) {
-    client.setRequestHandler(ElicitRequestSchema, async () => harness.elicitAnswer);
+    client.setRequestHandler(ElicitRequestSchema, async () => {
+      await new Promise((r) => setTimeout(r, harness.elicitDelayMs));
+      return harness.elicitAnswer;
+    });
   }
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

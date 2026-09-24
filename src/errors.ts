@@ -5,7 +5,8 @@ export type ErrorCode =
   | "VALIDATION"
   | "NOT_FOUND"
   | "CONFIRMATION_DECLINED"
-  | "CONFIRMATION_UNAVAILABLE"
+  | "CONFIRMATION_CANCELLED"
+  | "CONFIRMATION_INVALID"
   | "ITFIN_ERROR";
 
 export class ToolError extends Error {
