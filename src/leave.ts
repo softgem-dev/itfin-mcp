@@ -18,7 +18,16 @@ export interface RawLeaveRequestInfo {
   /** null: unlimited */
   availableDays?: number | null;
   requestedDays?: number;
+  /** Hours the request counts, shown by the web app for part-day requests. */
+  requestedHours?: number;
   minDays?: number;
+  [key: string]: unknown;
+}
+
+/** A leave type's policy for the user from `POST /v3/timeoff/stats`. */
+export interface RawLeaveTypeStat {
+  timeoffTypeId: number;
+  timeForRequest?: { isAllowedToRequestPartDay?: boolean; fixedMinutesForRequest?: number | null } | null;
   [key: string]: unknown;
 }
 
@@ -69,6 +78,13 @@ export function leaveReasons(requestType: string | null | undefined, additional:
   const extra = typeof additional === "string" ? additional.split("\n").map((r) => r.trim()).filter(Boolean) : [];
   if (extra[0] === "-") return extra.filter((r) => r !== "-");
   return [...builtIn, ...extra];
+}
+
+/** Minutes as the web app's part-day "FormattedHours" field, e.g. 270 → "04h 30m", 30 → "0h 30m". */
+export function formatHours(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = String(minutes % 60).padStart(2, "0");
+  return h ? `${String(h).padStart(2, "0")}h ${m}m` : `0h ${m}m`;
 }
 
 export function toLeaveRequest(r: RawLeaveRequest) {

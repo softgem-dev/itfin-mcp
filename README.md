@@ -132,7 +132,7 @@ The login browser uses its own profile (`~/Library/Application Support/itfin-mcp
 | `itfin_request_reopen` | Asks a manager to reopen closed days. If you give no reason, the agent makes up a funny one. You confirm every time: in a form if the app can show one, otherwise in chat via a one-time confirmation token (ADR 0003) |
 | `itfin_list_reopen_requests` | Your reopen requests and their status |
 | `itfin_list_leave_types` | Leave types you can request (vacation / day off, sick leave, paid or unpaid leave), with the reasons ITFin accepts |
-| `itfin_request_leave` | Asks your manager to approve full days of leave. ITFin checks the balance and dates first, and the preview shows how many days it counts. You confirm every time, like reopen requests. Part days, carry-over days and requests that need attached documents are left to the ITFin web app |
+| `itfin_request_leave` | Asks your manager to approve full or part days of leave; for part of a day, pass `hours` with one date (e.g. 4h off, 4h of work). ITFin checks the balance and dates first, and the preview shows how many days (or hours, for part days) it counts. You confirm every time, like reopen requests. Part days only where your leave policy allows them; carry-over days and requests that need attached documents are left to the ITFin web app |
 | `itfin_list_leave_requests(from?, to?)` | Your leave requests and their status |
 | `itfin_cancel_leave_request(id)` | Cancels one of your leave requests. Only leave requests can be cancelled this way, not reopen requests |
 

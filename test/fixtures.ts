@@ -103,7 +103,7 @@ export function reopenRequest(o: { id: number; from: string; to: string; status:
   return { DateFrom: o.from, DateTo: o.to, CreatedAt: "2026-09-01T08:00:00.000Z", UpdatedAt: "2026-09-01T08:00:00.000Z", Id: o.id, RequestType: "OpenReporting", Status: o.status, Comment: o.comment ?? "Forgot to report last week" };
 }
 
-// Leave shapes follow the web app's "Request time off" form (bundle v4.4.25); not recorded live.
+// Leave shapes follow the web app's "Request time off" form (bundle v4.4.25, part days from its current bundle); not recorded live.
 export const leaveTypes = {
   timeoffs: [
     { id: 11, name: "Vacation", type: "Paid", oldSystemTimeoffName: "Vacation" },
@@ -113,8 +113,12 @@ export const leaveTypes = {
   ],
 };
 
-export function leaveRequestInfo(o: { requestedDays?: number; availableDays?: number | null; isAvailableToRequest?: boolean; isAttachFileToRequest?: boolean } = {}) {
+export function leaveRequestInfo(o: { requestedDays?: number; requestedHours?: number; availableDays?: number | null; isAvailableToRequest?: boolean; isAttachFileToRequest?: boolean } = {}) {
   return { isAvailableToRequest: true, isAttachFileToRequest: false, availableDays: 18, requestedDays: 2, minDays: 0, requestedHours: 16, ...o };
+}
+
+export function leaveTypeStats(o: { timeoffTypeId?: number; isAllowedToRequestPartDay?: boolean } = {}) {
+  return { stats: [{ timeoffTypeId: o.timeoffTypeId ?? 12, isEnabled: true, timeForRequest: { isAllowedToRequestPartDay: o.isAllowedToRequestPartDay ?? true, fixedMinutesForRequest: null } }] };
 }
 
 export function leaveRequest(o: { id: number; type: string; from: string; to: string; status: string }) {

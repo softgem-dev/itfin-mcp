@@ -93,6 +93,8 @@ export interface Harness {
   elicitAnswer: { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
   /** How long the simulated user takes to answer; 0 mimics a client that answers without showing the form. */
   elicitDelayMs: number;
+  /** Messages of the confirmation prompts the server showed, oldest first. */
+  elicitMessages: string[];
   close(): Promise<void>;
 }
 
@@ -121,6 +123,7 @@ export async function startHarness(opts: { now: string; config?: Partial<Config>
     store,
     elicitAnswer: { action: "accept" },
     elicitDelayMs: HUMAN_MS,
+    elicitMessages: [],
     setNow(iso) {
       now = new Date(iso);
     },
@@ -136,7 +139,8 @@ export async function startHarness(opts: { now: string; config?: Partial<Config>
     },
   };
   if (opts.elicitation !== false) {
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler(ElicitRequestSchema, async (req) => {
+      harness.elicitMessages.push(req.params.message);
       await new Promise((r) => setTimeout(r, harness.elicitDelayMs));
       return harness.elicitAnswer;
     });

@@ -12,5 +12,5 @@ A reopen request goes to the user's manager, so the server never files one witho
 
 - On the token path, consent depends on the agent honestly asking the user. The server only guarantees that one call alone can't file, and that the second call matches what the preview showed.
 - Every form answer is logged to stderr (`action`, `confirm`, elapsed ms). Declined and dismissed forms return `CONFIRMATION_DECLINED` or `CONFIRMATION_CANCELLED` with those details.
-- Leave requests also go to the manager, so `itfin_request_leave` uses the same flow. Its token is bound to the leave type, dates, reason and comment, and a token issued by one tool is refused by the other.
+- Leave requests also go to the manager, so `itfin_request_leave` uses the same flow. Its token is bound to the leave type, dates, part-day hours, reason and comment, and a token issued by one tool is refused by the other.
 - Tokens live in the server's memory. They don't survive a server restart, which only means asking again.
