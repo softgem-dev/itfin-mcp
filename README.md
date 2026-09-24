@@ -10,7 +10,25 @@ Deciding what to report is up to the agent's instructions, for example a daily s
 - Node.js 22+
 - A Chromium-based browser for login: Chrome, Edge, Brave, Arc or Chromium
 
-## Setup
+## Quick install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
+```
+
+The script:
+1. clones or updates the repo in `~/.itfin-mcp`;
+2. builds it;
+3. asks for your workspace address, browser, start of the working day and timezone;
+4. registers the server with Claude Code. For Claude Desktop, it prints the config snippet to paste.
+
+Run it again to update. To skip the questions:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash -s -- --url https://acme.itfin.io --browser chrome --work-start 10:00 --timezone Europe/Kyiv
+```
+
+## Manual setup
 
 ```bash
 npm install
