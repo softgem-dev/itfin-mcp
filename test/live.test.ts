@@ -11,7 +11,7 @@ import { createItfinServer } from "../src/server.js";
 import { KeychainTokenStore } from "../src/tokenStore.js";
 
 describe.runIf(process.env.ITFIN_LIVE === "1")("live ITFin workspace (read-only)", () => {
-  it("reads token status, projects, time entries, settings and reopen requests", async () => {
+  it("reads token status, projects, time entries, settings, reopen and leave requests", async () => {
     const config = loadConfig();
     const server = createItfinServer({ config, clock: systemClock, tokenStore: new KeychainTokenStore("itfin-mcp", config.workspaceUrl) });
     const client = new Client({ name: "live-smoke", version: "0" });
@@ -32,6 +32,8 @@ describe.runIf(process.env.ITFIN_LIVE === "1")("live ITFin workspace (read-only)
     expect(days[0]).toHaveProperty("status");
     expect(await call("itfin_get_workspace_settings")).toHaveProperty("minCommentLength");
     expect(await call("itfin_list_reopen_requests")).toHaveProperty("requests");
+    expect(Array.isArray((await call("itfin_list_leave_types")).leaveTypes)).toBe(true);
+    expect(await call("itfin_list_leave_requests")).toHaveProperty("requests");
     await client.close();
   });
 });

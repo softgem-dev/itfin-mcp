@@ -102,3 +102,21 @@ export const projectsForDate = [
 export function reopenRequest(o: { id: number; from: string; to: string; status: string; comment?: string }) {
   return { DateFrom: o.from, DateTo: o.to, CreatedAt: "2026-09-01T08:00:00.000Z", UpdatedAt: "2026-09-01T08:00:00.000Z", Id: o.id, RequestType: "OpenReporting", Status: o.status, Comment: o.comment ?? "Forgot to report last week" };
 }
+
+// Leave shapes follow the web app's "Request time off" form (bundle v4.4.25); not recorded live.
+export const leaveTypes = {
+  timeoffs: [
+    { id: 11, name: "Vacation", type: "Paid", oldSystemTimeoffName: "Vacation" },
+    { id: 12, name: "Sick leave", type: "Paid", oldSystemTimeoffName: "Sickness" },
+    { id: 13, name: "Unpaid leave", type: "Unpaid", oldSystemTimeoffName: "Unpaid" },
+    { id: 14, name: "Shift day", type: "CarryOver", oldSystemTimeoffName: "CarryOver" },
+  ],
+};
+
+export function leaveRequestInfo(o: { requestedDays?: number; availableDays?: number | null; isAvailableToRequest?: boolean; isAttachFileToRequest?: boolean } = {}) {
+  return { isAvailableToRequest: true, isAttachFileToRequest: false, availableDays: 18, requestedDays: 2, minDays: 0, requestedHours: 16, ...o };
+}
+
+export function leaveRequest(o: { id: number; type: string; from: string; to: string; status: string }) {
+  return { Id: o.id, RequestType: o.type, DateFrom: `${o.from}T00:00:00.000Z`, DateTo: `${o.to}T00:00:00.000Z`, Status: o.status, Reason: "Rest and relax", Comment: "Vacation", CreatedAt: "2026-09-01T08:00:00.000Z" };
+}

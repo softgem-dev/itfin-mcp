@@ -102,7 +102,7 @@ async with MCPServerStdio(
 Things to know for any client:
 - The server must run on the same Mac as you. It opens the login browser, reads the Keychain and schedules notifications. ChatGPT connectors and other hosted agents only reach remote MCP servers, so they can't use it.
 - Use absolute paths. GUI apps often don't see `nvm` or Homebrew shims on `PATH`.
-- If the client can't show confirmation forms (MCP elicitation), reopen requests are confirmed in chat with a one-time token instead (ADR 0003).
+- If the client can't show confirmation forms (MCP elicitation), reopen and leave requests are confirmed in chat with a one-time token instead (ADR 0003).
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -131,15 +131,19 @@ The login browser uses its own profile (`~/Library/Application Support/itfin-mcp
 | `itfin_get_workspace_settings` | Minimum comment length, and whether reopen requests are enabled |
 | `itfin_request_reopen` | Asks a manager to reopen closed days. If you give no reason, the agent makes up a funny one. You confirm every time: in a form if the app can show one, otherwise in chat via a one-time confirmation token (ADR 0003) |
 | `itfin_list_reopen_requests` | Your reopen requests and their status |
+| `itfin_list_leave_types` | Leave types you can request (vacation / day off, sick leave, paid or unpaid leave), with the reasons ITFin accepts |
+| `itfin_request_leave` | Asks your manager to approve full days of leave. ITFin checks the balance and dates first, and the preview shows how many days it counts. You confirm every time, like reopen requests. Part days, carry-over days and requests that need attached documents are left to the ITFin web app |
+| `itfin_list_leave_requests(from?, to?)` | Your leave requests and their status |
+| `itfin_cancel_leave_request(id)` | Cancels one of your leave requests. Only leave requests can be cancelled this way, not reopen requests |
 
 Errors come back as `{ "error": { "code": ... } }`. The codes are:
 
 - `AUTH_REQUIRED`: log in again.
 - `DAY_CLOSED`: the reporting period is closed. The error includes the matching reopen requests and a hint.
 - `DAY_IN_FUTURE`: the day can't be reported yet.
-- `VALIDATION`: the input was rejected before sending.
-- `NOT_FOUND`: the entry doesn't exist.
-- `CONFIRMATION_DECLINED` / `CONFIRMATION_CANCELLED`: you declined or dismissed the confirmation form, so no reopen request was filed.
+- `VALIDATION`: the input was rejected before sending, or ITFin said the leave can't be requested.
+- `NOT_FOUND`: the entry or leave request doesn't exist.
+- `CONFIRMATION_DECLINED` / `CONFIRMATION_CANCELLED`: you declined or dismissed the confirmation form, so nothing was filed.
 - `CONFIRMATION_INVALID`: the chat confirmation token is unknown, expired, already used, or doesn't match the request.
 - `ITFIN_ERROR`: any other error, with ITFin's message.
 
