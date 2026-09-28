@@ -34,52 +34,16 @@ Flags override the saved settings, so they also change them on an update. Other 
 - `--url https://itfin.example.com` instead of `--company`, for a workspace that isn't on `itfin.io`;
 - `--dir <path>` to install somewhere other than `~/.itfin-mcp` (or set `ITFIN_MCP_DIR`).
 
-## Manual setup
+## Other MCP clients (OpenAI Agents SDK, Cursor, and similar)
 
-```bash
-npm install
-npm run build
-```
-
-Register the server with Claude Code:
-
-```bash
-claude mcp add itfin --scope user -e ITFIN_URL=https://<workspace>.itfin.io -- node /absolute/path/to/itfin-mcp/dist/index.js
-```
-
-Register it with Codex (CLI, IDE extension and app share `~/.codex/config.toml`):
-
-```bash
-codex mcp add itfin --env ITFIN_URL=https://<workspace>.itfin.io -- node /absolute/path/to/itfin-mcp/dist/index.js
-```
-
-Or edit `~/.codex/config.toml` directly. Raise `tool_timeout_sec`, because `itfin_login` waits up to 3 minutes for you to sign in (the Codex default is 60 seconds):
-
-```toml
-[mcp_servers.itfin]
-command = "/absolute/path/to/node"
-args = ["/absolute/path/to/itfin-mcp/dist/index.js"]
-tool_timeout_sec = 240
-
-[mcp_servers.itfin.env]
-ITFIN_URL = "https://<workspace>.itfin.io"
-ITFIN_BROWSER = "chrome"
-ITFIN_WORK_START = "10:00"
-ITFIN_TIMEZONE = "Europe/Kyiv"
-```
-
-Run `codex mcp list` to check it, then start a new Codex session.
-
-### Other MCP clients (OpenAI Agents SDK, Cursor, and similar)
-
-It is a local **stdio** server, so any client that can launch one works. Give it the command `node /absolute/path/to/itfin-mcp/dist/index.js` and the variables below. Most clients take the same JSON shape:
+Run the quick install first: it builds the server into `~/.itfin-mcp`. It is a local **stdio** server, so any client that can launch one works. Give it the command `node /Users/<you>/.itfin-mcp/dist/index.js` and the settings below. Most clients take the same JSON shape:
 
 ```json
 {
   "mcpServers": {
     "itfin": {
       "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/itfin-mcp/dist/index.js"],
+      "args": ["/Users/<you>/.itfin-mcp/dist/index.js"],
       "env": { "ITFIN_URL": "https://<workspace>.itfin.io" }
     }
   }
@@ -96,7 +60,7 @@ async with MCPServerStdio(
     name="itfin",
     params={
         "command": "node",
-        "args": ["/absolute/path/to/itfin-mcp/dist/index.js"],
+        "args": ["/Users/<you>/.itfin-mcp/dist/index.js"],
         "env": {"ITFIN_URL": "https://<workspace>.itfin.io"},
     },
     client_session_timeout_seconds=240,  # itfin_login waits up to 3 minutes
@@ -109,6 +73,8 @@ Things to know for any client:
 - The server must run on the same Mac as you. It opens the login browser, reads the Keychain and schedules notifications. ChatGPT connectors and other hosted agents only reach remote MCP servers, so they can't use it.
 - Use absolute paths. GUI apps often don't see `nvm` or Homebrew shims on `PATH`.
 - If the client can't show confirmation forms (MCP elicitation), reopen and leave requests are confirmed in chat with a one-time token instead (ADR 0003).
+
+## Settings
 
 | Variable | Default | Meaning |
 |---|---|---|
