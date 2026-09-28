@@ -14,7 +14,9 @@ import {
   formatHours,
   LEAVE_REQUEST_TYPES,
   leaveReasons,
+  sameLeaveTypeId,
   toLeaveRequest,
+  type LeaveTypeId,
   type RawLeaveRequest,
   type RawLeaveRequestInfo,
   type RawLeaveType,
@@ -36,6 +38,14 @@ export interface ServerDeps {
   startLogin?: (maxWaitMs: number) => Promise<LoginSession>;
   reminders?: ReminderScheduler;
 }
+
+/** Browser use is limited to the login flow; everything else goes through the tools. */
+export const BROWSER_RULE =
+  "Never open or drive a browser on your own initiative for ITFin work. The only automatic browser action allowed is the itfin_login sign-in flow. " +
+  "For anything else (for example filing leave or time entries through the ITFin web app when a tool fails), use a browser only if the user explicitly asks for it, or after you've proposed it and the user confirmed. " +
+  "If a tool fails, report the error and stop. Don't fall back to web UI automation.";
+
+export const SERVER_INSTRUCTIONS = `Tools for one user's ITFin workspace: projects, time entries, reopen requests and leave requests.\n\n${BROWSER_RULE}`;
 
 /** How long itfin_login blocks before it keeps waiting in the background. */
 const LOGIN_BLOCK_MS = 3 * 60 * 1000;
@@ -139,7 +149,7 @@ function toEntry(e: RawEntry) {
 
 export function createItfinServer(deps: ServerDeps): McpServer {
   const { config, clock, tokenStore } = deps;
-  const server = new McpServer({ name: "itfin-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "itfin-mcp", version: "0.1.0" }, { instructions: SERVER_INSTRUCTIONS });
 
   type TokenState =
     | { valid: true; token: string; email?: string; expiresAt: Date }
@@ -498,7 +508,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         const requestType = t.oldSystemTimeoffName ?? undefined;
         const setting = requestType ? ADDITIONAL_REASONS_SETTING[requestType] : undefined;
         const reasons = leaveReasons(requestType, setting ? findSetting(settings, setting) : undefined);
-        return { id: t.id, name: t.name, requestType, paid: t.type !== "Unpaid", reasons, reasonRequired: reasons.length > 0 && !reasonOptional };
+        return { id: String(t.id), apiId: t.id, name: t.name, requestType, paid: t.type !== "Unpaid", reasons, reasonRequired: reasons.length > 0 && !reasonOptional };
       });
   }
 
@@ -509,7 +519,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
   }
 
   /** `hours` is set for part-day leave, which covers the single day `from` (= `to`). */
-  type LeaveRequestInput = { leaveTypeId: number; from: string; to: string; hours?: number; reason: string | undefined; comment: string };
+  type LeaveRequestInput = { leaveTypeId: LeaveTypeId; from: string; to: string; hours?: number; reason: string | undefined; comment: string };
 
   /** The web form's part-day fields: the day, and the time off as "04h 00m" and in hours. */
   function partDayFields(request: LeaveRequestInput) {
@@ -544,7 +554,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         "Leave types the user can request (vacation / day off, sick leave, paid or unpaid leave, as configured in the workspace), with the id for itfin_request_leave and the reasons ITFin accepts for each.",
       annotations: { readOnlyHint: true },
     },
-    () => handle(async () => ({ leaveTypes: await leaveTypes() })),
+    () => handle(async () => ({ leaveTypes: (await leaveTypes()).map(({ apiId: _, ...t }) => t) })),
   );
 
   server.registerTool(
@@ -591,7 +601,9 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         "Call it when the user asks for the leave in the conversation; that is the go-ahead, with no separate confirmation step. " +
         "ITFin first checks the request (balance, allowed dates), then it is filed. The result says how many days (or hours, for part days) it counts.",
       inputSchema: {
-        leaveTypeId: z.number().int(),
+        leaveTypeId: z
+          .union([z.string().min(1), z.number().int()])
+          .describe("The leave type's id exactly as itfin_list_leave_types returns it, e.g. \"YvDrZ\"."),
         from: isoDate.describe("First day of leave"),
         to: isoDate.describe("Last day of leave (inclusive); same as from for one day"),
         hours: z
@@ -618,7 +630,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         }
         if (partDay && Math.round(args.hours! * 60) === 0) throw new ToolError("VALIDATION", "`hours` must be at least one minute.");
         const types = await leaveTypes();
-        const type = types.find((t) => t.id === args.leaveTypeId);
+        const type = types.find((t) => sameLeaveTypeId(t.apiId, args.leaveTypeId));
         if (!type) {
           throw new ToolError("VALIDATION", `Leave type ${args.leaveTypeId} is not available to the user.`, {
             leaveTypes: types.map((t) => ({ id: t.id, name: t.name })),
@@ -634,16 +646,16 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         if (partDay) {
           // The web form offers the part-day switch only when the leave type's policy allows it.
           const { stats } = await itfin.request<{ stats?: RawLeaveTypeStat[] }>("POST", "/v3/timeoff/stats", {
-            body: { employeeId: await employeeId(), timeoffTypeIds: [type.id], date: todayIn(clock.now(), config.timezone) },
+            body: { employeeId: await employeeId(), timeoffTypeIds: [type.apiId], date: todayIn(clock.now(), config.timezone) },
           });
-          if (!stats?.find((s) => s.timeoffTypeId === type.id)?.timeForRequest?.isAllowedToRequestPartDay) {
+          if (!stats?.find((s) => sameLeaveTypeId(s.timeoffTypeId, type.apiId))?.timeForRequest?.isAllowedToRequestPartDay) {
             throw new ToolError("VALIDATION", `ITFin does not allow requesting ${type.name} for part of a day.`);
           }
         }
 
-        const request: LeaveRequestInput = { leaveTypeId: type.id, from: args.from, to: args.to, ...(partDay && { hours: args.hours }), reason, comment: args.comment };
+        const request: LeaveRequestInput = { leaveTypeId: type.apiId, from: args.from, to: args.to, ...(partDay && { hours: args.hours }), reason, comment: args.comment };
         const info = await itfin.request<RawLeaveRequestInfo>("POST", "/v3/timeoff/request-info", {
-          body: { employeeId: await employeeId(), timeoffId: type.id, dateFrom: args.from, dateTo: args.to, ...partDayFields(request) },
+          body: { employeeId: await employeeId(), timeoffId: type.apiId, dateFrom: args.from, dateTo: args.to, ...partDayFields(request) },
         });
         // Balance stays in days; a part-day request is counted in hours.
         const days = { requestedDays: info.requestedDays, requestedHours: partDay ? info.requestedHours : undefined, availableDays: info.availableDays, minDays: info.minDays };
@@ -663,7 +675,8 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     {
       title: "Log in to ITFin",
       description:
-        "Opens a browser window on the ITFin workspace so the user can sign in with Google, then stores the new ITFin token (valid 7 days) and schedules a relogin reminder. Call it only when the user asks to log in. Waits up to 3 minutes; if the user is slower, it keeps waiting in the background and shows a notification on success.",
+        "Opens a browser window on the ITFin workspace so the user can sign in with Google, then stores the new ITFin token (valid 7 days) and schedules a relogin reminder. Call it only when the user asks to log in. Waits up to 3 minutes; if the user is slower, it keeps waiting in the background and shows a notification on success. " +
+        "This sign-in window is the only browser the agent may open on its own; don't use a browser for any other ITFin work unless the user asks for it.",
       annotations: { readOnlyHint: false, openWorldHint: true },
     },
     () =>
