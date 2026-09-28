@@ -7,11 +7,11 @@ A local MCP server that gives agents authenticated access to one user's ITFin wo
 ### Authorization
 
 **Workspace**:
-A company's ITFin instance, identified by its address (e.g. `https://keenethics.itfin.io`). Each installation is configured for exactly one workspace and one user.
+A company's ITFin instance, identified by its address (e.g. `https://acme.itfin.io`). Each installation is configured for exactly one workspace and one user.
 _Avoid_: tenant, company, domain
 
 **Company name**:
-The subdomain of a workspace address on `itfin.io` (`keenethics` for `https://keenethics.itfin.io`). Only the installer asks for it, because users know it better than the address; everywhere else, refer to the workspace.
+The subdomain of a workspace address on `itfin.io` (`acme` for `https://acme.itfin.io`). Only the installer asks for it, because users know it better than the address; everywhere else, refer to the workspace.
 _Avoid_: company (on its own), tenant name
 
 **ITFin token**:

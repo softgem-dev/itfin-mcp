@@ -2,7 +2,7 @@
 
 Report time and request leave in ITFin by chatting with Claude Code, Codex or Claude Desktop.
 
-An unofficial, community-built tool. It is not made or supported by ITFin.
+An unofficial tool. It is not made, endorsed or supported by ITFin.
 
 ## Install (about 2 minutes)
 
@@ -86,4 +86,6 @@ Every merge into `main` publishes to npm ([workflow](.github/workflows/publish.y
 
 ## License
 
-[MIT](LICENSE)
+The code is [MIT](LICENSE), copyright Steven Tailor.
+
+The license covers this project's code only. ITFin, its name, service, API and data belong to their owners and are not licensed here. The tool talks to ITFin only through the API your own account can already use, after you log in yourself. Use it within your company's ITFin terms.

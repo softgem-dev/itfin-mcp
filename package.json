@@ -10,6 +10,7 @@
     "timesheet"
   ],
   "license": "MIT",
+  "author": "Steven Tailor <stv.tailor@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/steven-tailor/itfin-mcp.git"
