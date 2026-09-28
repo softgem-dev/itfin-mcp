@@ -37,6 +37,7 @@ command -v node >/dev/null || fail "Node.js 22+ is required: https://nodejs.org"
 
 if [[ -d "$DIR/.git" ]]; then
   echo "→ Updating $DIR"
+  OLD_REV="$(git -C "$DIR" rev-parse HEAD)"
   git -C "$DIR" pull --ff-only --quiet
 else
   echo "→ Cloning into $DIR"
@@ -45,6 +46,16 @@ fi
 
 echo "→ Installing dependencies and building"
 (cd "$DIR" && npm ci --silent --no-audit --no-fund && npm run --silent build)
+
+# Servers that apps started before this update keep running the old code until they exit. Stop them,
+# matching only the node processes (not the wrappers apps launch them with), so no app keeps using
+# stale tools. Each app starts a fresh server for its next session, or after a restart.
+STALE=""
+[[ -n "${OLD_REV:-}" && "$OLD_REV" != "$(git -C "$DIR" rev-parse HEAD)" ]] && STALE="$(pgrep -f "^[^ ]*node $DIR/dist/index\.js\$" || true)"
+if [[ -n "$STALE" ]]; then
+  echo "→ Stopping $(echo "$STALE" | wc -l | tr -d ' ') running itfin-mcp server(s) with the old code"
+  kill $STALE 2>/dev/null || true
+fi
 
 # Apps to register with: claude (Claude Code), codex, desktop (Claude Desktop).
 # Updates keep the apps of the previous install. A first install asks, with every app found checked.
@@ -163,5 +174,6 @@ echo
 echo "✓ itfin-mcp is installed in $DIR"
 # Claude Desktop reads its config only at startup. Not quit here: it may be running this script.
 [[ -n "$DESKTOP" ]] && echo "Restart Claude Desktop (Cmd+Q, then open it) to load the server."
+[[ -n "${STALE:-}" ]] && echo "Open sessions lost the ITFin tools: start a new session, or reconnect itfin with /mcp in Claude Code."
 echo "Next: start a new session and ask it to \"log in to ITFin\"."
 echo "Run this script again at any time to update."

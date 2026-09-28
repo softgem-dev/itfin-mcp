@@ -19,6 +19,8 @@ You need macOS, Node.js 22+ and Chrome, Edge, Brave, Arc or Chromium.
 
 Run the same command again. It keeps your apps and settings and asks nothing.
 
+If the update changed anything, it stops the ITFin servers that are still running the old version. Then start a new session (in Claude Code, `/mcp` → reconnect itfin also works) and restart Claude Desktop (Cmd+Q, then open it).
+
 ## Log in (once a week)
 
 1. Say **"log in to ITFin"**.
