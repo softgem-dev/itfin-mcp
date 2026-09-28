@@ -30,7 +30,8 @@ export class ItfinClient {
     for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v));
     const headers: Record<string, string> = { accept: "application/json" };
     const token = opts.anonymous ? undefined : await this.getToken();
-    if (token) headers.authorization = `Bearer ${token}`;
+    // The raw token, as the web app sends it: /v1 also accepts "Bearer <token>", but /v3 answers that with 401 "Invalid token".
+    if (token) headers.authorization = token;
     const maxAttempts = RETRYABLE_METHODS.has(method) ? MAX_ATTEMPTS : 1;
     if (opts.body !== undefined) headers["content-type"] = "application/json";
 
