@@ -10,6 +10,10 @@ A local MCP server that gives agents authenticated access to one user's ITFin wo
 A company's ITFin instance, identified by its address (e.g. `https://keenethics.itfin.io`). Each installation is configured for exactly one workspace and one user.
 _Avoid_: tenant, company, domain
 
+**Company name**:
+The subdomain of a workspace address on `itfin.io` (`keenethics` for `https://keenethics.itfin.io`). Only the installer asks for it, because users know it better than the address; everywhere else, refer to the workspace.
+_Avoid_: company (on its own), tenant name
+
 **ITFin token**:
 The JWT that authorizes API calls. It is issued only when the user logs in and expires exactly 7 days after issue. It is never refreshed or extended.
 _Avoid_: session, auth, refresh token
