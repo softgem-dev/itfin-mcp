@@ -18,7 +18,8 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # itfin-mcp is macOS-only ("os": ["darwin"]), so npm ci refuses to install it on Linux.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
 
