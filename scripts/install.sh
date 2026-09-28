@@ -2,15 +2,18 @@
 # Quick install for itfin-mcp: clones or updates the repo, builds it and registers the MCP server
 # with Claude Code and Codex. Usage:
 #   curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
-#   curl -fsSL .../install.sh | bash -s -- --url https://acme.itfin.io [--browser chrome] [--work-start 10:00] [--timezone Europe/Kyiv]
+#   curl -fsSL .../install.sh | bash -s -- --company acme [--browser chrome] [--work-start 10:00] [--timezone Europe/Kyiv]
+# The first install asks only for the company name. Updates reuse the settings of the previous install.
 set -euo pipefail
 
 REPO="https://github.com/softgem-dev/itfin-mcp.git"
 DIR="${ITFIN_MCP_DIR:-$HOME/.itfin-mcp}"
+CODEX_CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 URL="" BROWSER="" WORK_START="" TIMEZONE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --company) URL="https://$2.itfin.io"; shift 2 ;;
     --url) URL="$2"; shift 2 ;;
     --browser) BROWSER="$2"; shift 2 ;;
     --work-start) WORK_START="$2"; shift 2 ;;
@@ -40,17 +43,50 @@ fi
 echo "→ Installing dependencies and building"
 (cd "$DIR" && npm ci --silent --no-audit --no-fund && npm run --silent build)
 
-[[ -n "$URL" ]] || URL="$(ask "ITFin workspace address (e.g. https://acme.itfin.io)")"
+# Settings of the previous install, from the Claude Code registration or the Codex config.
+PREV=""
+if command -v claude >/dev/null; then PREV+="$(claude mcp get itfin 2>/dev/null || true)"$'\n'; fi
+if [[ -f "$CODEX_CONFIG" ]]; then PREV+="$(cat "$CODEX_CONFIG")"; fi
+# Prints the value of KEY from lines like `KEY=value` or `KEY = "value"`.
+prev() {
+  printf '%s\n' "$PREV" | awk -v k="$1" '{
+    sub(/^[ \t]+/, "")
+    if (index($0, k) != 1) next
+    rest = substr($0, length(k) + 1)
+    if (rest !~ /^[ \t]*=/) next
+    sub(/^[ \t]*=[ \t]*/, "", rest); gsub(/"/, "", rest); sub(/[ \t]+$/, "", rest)
+    print rest; exit
+  }'
+}
+
+[[ -n "$URL" ]] || URL="$(prev ITFIN_URL)"
+[[ -n "$BROWSER" ]] || BROWSER="$(prev ITFIN_BROWSER)"
+[[ -n "$WORK_START" ]] || WORK_START="$(prev ITFIN_WORK_START)"
+[[ -n "$TIMEZONE" ]] || TIMEZONE="$(prev ITFIN_TIMEZONE)"
+
+if [[ -z "$URL" ]]; then
+  COMPANY="$(ask "Company name in ITFin (acme for https://acme.itfin.io)")"
+  COMPANY="$(printf '%s' "$COMPANY" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  # Also accept a pasted address like https://acme.itfin.io.
+  COMPANY="${COMPANY#*://}"; COMPANY="${COMPANY%%.itfin.io*}"
+  [[ "$COMPANY" =~ ^[a-z0-9-]+$ ]] || fail "Company name must be letters, digits or dashes, like acme."
+  URL="https://$COMPANY.itfin.io"
+fi
 URL="${URL%/}"
 [[ "$URL" =~ ^https?://[^/]+$ ]] || fail "Workspace address must look like https://acme.itfin.io"
-[[ -n "$BROWSER" ]] || BROWSER="$(ask "Browser for login (chrome, edge, brave, arc, chromium)" chrome)"
-[[ -n "$WORK_START" ]] || WORK_START="$(ask "Start of your working day (HH:mm)" 10:00)"
-[[ -n "$TIMEZONE" ]] || TIMEZONE="$(ask "Timezone" "$(node -p 'Intl.DateTimeFormat().resolvedOptions().timeZone')")"
+echo "→ Workspace: $URL"
 
 ENTRY="$DIR/dist/index.js"
 # Absolute path, because Claude Desktop does not see version-manager shims on PATH.
 NODE="$(command -v node)"
-ENV_ARGS=(-e "ITFIN_URL=$URL" -e "ITFIN_BROWSER=$BROWSER" -e "ITFIN_WORK_START=$WORK_START" -e "ITFIN_TIMEZONE=$TIMEZONE")
+# Settings left empty are not passed, so the server uses its defaults (chrome, 10:00, system timezone).
+ENV_ARGS=(-e "ITFIN_URL=$URL")
+ENV_JSON="\"ITFIN_URL\": \"$URL\""
+for pair in "ITFIN_BROWSER=$BROWSER" "ITFIN_WORK_START=$WORK_START" "ITFIN_TIMEZONE=$TIMEZONE"; do
+  [[ -n "${pair#*=}" ]] || continue
+  ENV_ARGS+=(-e "$pair")
+  ENV_JSON+=", \"${pair%%=*}\": \"${pair#*=}\""
+done
 
 if command -v claude >/dev/null; then
   echo "→ Registering the MCP server with Claude Code (user scope)"
@@ -65,7 +101,7 @@ if command -v codex >/dev/null; then
   # itfin_login waits up to 3 minutes; Codex gives up on tool calls after 60 seconds by default.
   sed -i '' '/^\[mcp_servers\.itfin\]$/a\
 tool_timeout_sec = 240
-' "${CODEX_HOME:-$HOME/.codex}/config.toml"
+' "$CODEX_CONFIG"
 fi
 
 command -v claude >/dev/null || command -v codex >/dev/null || echo "! Neither the Claude Code nor the Codex CLI was found, so nothing was registered."
@@ -79,7 +115,7 @@ For Claude Desktop, add this to ~/Library/Application Support/Claude/claude_desk
   "itfin": {
     "command": "$NODE",
     "args": ["$ENTRY"],
-    "env": { "ITFIN_URL": "$URL", "ITFIN_BROWSER": "$BROWSER", "ITFIN_WORK_START": "$WORK_START", "ITFIN_TIMEZONE": "$TIMEZONE" }
+    "env": { $ENV_JSON }
   }
 
 Next: start a new Claude session and ask it to "log in to ITFin".

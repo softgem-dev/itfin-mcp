@@ -19,14 +19,18 @@ curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/
 The script:
 1. clones or updates the repo in `~/.itfin-mcp`;
 2. builds it;
-3. asks for your workspace address, browser, start of the working day and timezone;
+3. asks for your company name, e.g. `acme` for `https://acme.itfin.io`. That's the only question;
 4. registers the server with Claude Code and Codex, if their CLIs are installed. For Claude Desktop, it prints the config snippet to paste.
 
-Run it again to update. To skip the questions:
+Run it again to update. Updates ask nothing: they keep the settings of the current Claude Code or Codex registration.
+
+The browser, start of the working day and timezone use their defaults (see the table below). To set them, or to skip the question, pass flags:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash -s -- --url https://acme.itfin.io --browser chrome --work-start 10:00 --timezone Europe/Kyiv
+curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash -s -- --company acme --browser brave --work-start 09:00 --timezone Europe/Kyiv
 ```
+
+Flags override the saved settings, so they also change them on an update.
 
 ## Manual setup
 
