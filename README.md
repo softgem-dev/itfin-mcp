@@ -10,15 +10,14 @@ You need macOS, Node.js 22+ and Chrome, Edge, Brave, Arc or Chromium.
    ```bash
    curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
    ```
-2. Type your company name: `acme` for `https://acme.itfin.io`.
-3. Claude Desktop only: restart it (Cmd+Q, then open it).
-4. Start a new session and say **"log in to ITFin"**.
-
-The script sets up Claude Code, Codex and Claude Desktop, whichever you have.
+2. Pick the apps: Claude Code, Codex, Claude Desktop. Space ticks or unticks one, Enter confirms.
+3. Type your company name: `acme` for `https://acme.itfin.io`.
+4. Claude Desktop only: restart it (Cmd+Q, then open it).
+5. Start a new session and say **"log in to ITFin"**.
 
 ## Update
 
-Run the same command again. It keeps your settings and asks nothing.
+Run the same command again. It keeps your apps and settings and asks nothing.
 
 ## Log in (once a week)
 
@@ -37,6 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/
 
 | Flag | Variable | Default | Sets |
 |---|---|---|---|
+| `--clients claude,codex,desktop` | | asked | Apps to install for |
 | `--company acme` | `ITFIN_URL` | asked | Workspace `https://acme.itfin.io` |
 | `--url <address>` | `ITFIN_URL` | | Workspace not on `itfin.io` |
 | `--browser` | `ITFIN_BROWSER` | `chrome` | `chrome`, `edge`, `brave`, `arc`, `chromium` or a path to the browser |

@@ -2,20 +2,22 @@
 # Quick install for itfin-mcp: clones or updates the repo, builds it and registers the MCP server
 # with Claude Code, Codex and Claude Desktop. Usage:
 #   curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
-#   curl -fsSL .../install.sh | bash -s -- --company acme [--browser chrome] [--work-start 10:00] [--timezone Europe/Kyiv]
-# The first install asks only for the company name. Updates reuse the settings of the previous install.
+#   curl -fsSL .../install.sh | bash -s -- --company acme [--clients claude,codex,desktop] [--browser chrome] [--work-start 10:00] [--timezone Europe/Kyiv]
+# The first install asks which apps to install for and the company name. Updates reuse the apps and
+# settings of the previous install.
 set -euo pipefail
 
 REPO="https://github.com/softgem-dev/itfin-mcp.git"
 DIR="${ITFIN_MCP_DIR:-$HOME/.itfin-mcp}"
 CODEX_CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
-URL="" BROWSER="" WORK_START="" TIMEZONE=""
+URL="" BROWSER="" WORK_START="" TIMEZONE="" CLIENTS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --company) URL="https://$2.itfin.io"; shift 2 ;;
     --url) URL="$2"; shift 2 ;;
+    --clients) CLIENTS="${2//,/ }"; shift 2 ;;
     --browser) BROWSER="$2"; shift 2 ;;
     --work-start) WORK_START="$2"; shift 2 ;;
     --timezone) TIMEZONE="$2"; shift 2 ;;
@@ -43,6 +45,31 @@ fi
 
 echo "→ Installing dependencies and building"
 (cd "$DIR" && npm ci --silent --no-audit --no-fund && npm run --silent build)
+
+# Apps to register with: claude (Claude Code), codex, desktop (Claude Desktop).
+# Updates keep the apps of the previous install. A first install asks, with every app found checked.
+if [[ -z "$CLIENTS" ]]; then
+  command -v claude >/dev/null && claude mcp get itfin >/dev/null 2>&1 && CLIENTS+="claude "
+  [[ -f "$CODEX_CONFIG" ]] && grep -q '^\[mcp_servers\.itfin\]$' "$CODEX_CONFIG" && CLIENTS+="codex "
+  [[ -f "$DESKTOP_CONFIG" ]] && grep -q '"itfin"' "$DESKTOP_CONFIG" && CLIENTS+="desktop "
+fi
+if [[ -z "$CLIENTS" ]]; then
+  FOUND=()
+  command -v claude >/dev/null && FOUND+=("claude=Claude Code")
+  command -v codex >/dev/null && FOUND+=("codex=Codex")
+  [[ -d /Applications/Claude.app || -f "$DESKTOP_CONFIG" ]] && FOUND+=("desktop=Claude Desktop")
+  [[ ${#FOUND[@]} -gt 0 ]] || fail "Install Claude Code, Codex or Claude Desktop first."
+  if (: </dev/tty) 2>/dev/null; then
+    CLIENTS="$(node "$DIR/scripts/pick-clients.mjs" "${FOUND[@]}")" || fail "Cancelled."
+  else
+    for found in "${FOUND[@]}"; do CLIENTS+="${found%%=*} "; done
+  fi
+fi
+CLIENTS=" $(echo $CLIENTS) "
+for client in $CLIENTS; do
+  [[ "$client" =~ ^(claude|codex|desktop)$ ]] || fail "Unknown app: $client. Use claude, codex or desktop."
+done
+wants() { [[ "$CLIENTS" == *" $1 "* ]]; }
 
 # Settings of the previous install, from the Claude Code registration, the Codex config or the
 # Claude Desktop config.
@@ -93,13 +120,15 @@ done
 ENV_ARGS=()
 for pair in "${ENV_PAIRS[@]}"; do ENV_ARGS+=(-e "$pair"); done
 
-if command -v claude >/dev/null; then
+if wants claude; then
+  command -v claude >/dev/null || fail "The claude CLI was not found."
   echo "→ Registering the MCP server with Claude Code (user scope)"
   claude mcp remove itfin --scope user >/dev/null 2>&1 || true
   claude mcp add itfin --scope user "${ENV_ARGS[@]}" -- "$NODE" "$ENTRY"
 fi
 
-if command -v codex >/dev/null; then
+if wants codex; then
+  command -v codex >/dev/null || fail "The codex CLI was not found."
   echo "→ Registering the MCP server with Codex"
   codex mcp remove itfin >/dev/null 2>&1 || true
   codex mcp add itfin "${ENV_ARGS[@]/#-e/--env}" -- "$NODE" "$ENTRY"
@@ -110,7 +139,7 @@ tool_timeout_sec = 240
 fi
 
 DESKTOP=""
-if [[ -d /Applications/Claude.app || -f "$DESKTOP_CONFIG" ]]; then
+if wants desktop; then
   echo "→ Registering the MCP server with Claude Desktop"
   # Replaces only mcpServers.itfin and keeps the rest of the file. The old file is kept as .bak.
   if node -e '
@@ -129,9 +158,6 @@ if [[ -d /Applications/Claude.app || -f "$DESKTOP_CONFIG" ]]; then
     echo "! Could not update $DESKTOP_CONFIG (is it valid JSON?), so Claude Desktop was not registered."
   fi
 fi
-
-command -v claude >/dev/null || command -v codex >/dev/null || [[ -n "$DESKTOP" ]] ||
-  echo "! Neither Claude Code, Codex nor Claude Desktop was found, so nothing was registered."
 
 echo
 echo "✓ itfin-mcp is installed in $DIR"
