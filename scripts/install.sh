@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Quick install for itfin-mcp: clones or updates the repo, builds it and registers the MCP server
-# with Claude Code and Codex. Usage:
+# with Claude Code, Codex and Claude Desktop. Usage:
 #   curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --company acme [--browser chrome] [--work-start 10:00] [--timezone Europe/Kyiv]
 # The first install asks only for the company name. Updates reuse the settings of the previous install.
@@ -9,6 +9,7 @@ set -euo pipefail
 REPO="https://github.com/softgem-dev/itfin-mcp.git"
 DIR="${ITFIN_MCP_DIR:-$HOME/.itfin-mcp}"
 CODEX_CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
+DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 URL="" BROWSER="" WORK_START="" TIMEZONE=""
 
 while [[ $# -gt 0 ]]; do
@@ -43,10 +44,15 @@ fi
 echo "→ Installing dependencies and building"
 (cd "$DIR" && npm ci --silent --no-audit --no-fund && npm run --silent build)
 
-# Settings of the previous install, from the Claude Code registration or the Codex config.
+# Settings of the previous install, from the Claude Code registration, the Codex config or the
+# Claude Desktop config.
 PREV=""
 if command -v claude >/dev/null; then PREV+="$(claude mcp get itfin 2>/dev/null || true)"$'\n'; fi
-if [[ -f "$CODEX_CONFIG" ]]; then PREV+="$(cat "$CODEX_CONFIG")"; fi
+if [[ -f "$CODEX_CONFIG" ]]; then PREV+="$(cat "$CODEX_CONFIG")"$'\n'; fi
+if [[ -f "$DESKTOP_CONFIG" ]]; then
+  PREV+="$(node -e 'const env = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).mcpServers?.itfin?.env ?? {};
+    for (const [k, v] of Object.entries(env)) console.log(`${k}=${v}`)' "$DESKTOP_CONFIG" 2>/dev/null || true)"
+fi
 # Prints the value of KEY from lines like `KEY=value` or `KEY = "value"`.
 prev() {
   printf '%s\n' "$PREV" | awk -v k="$1" '{
@@ -80,13 +86,12 @@ ENTRY="$DIR/dist/index.js"
 # Absolute path, because Claude Desktop does not see version-manager shims on PATH.
 NODE="$(command -v node)"
 # Settings left empty are not passed, so the server uses its defaults (chrome, 10:00, system timezone).
-ENV_ARGS=(-e "ITFIN_URL=$URL")
-ENV_JSON="\"ITFIN_URL\": \"$URL\""
-for pair in "ITFIN_BROWSER=$BROWSER" "ITFIN_WORK_START=$WORK_START" "ITFIN_TIMEZONE=$TIMEZONE"; do
-  [[ -n "${pair#*=}" ]] || continue
-  ENV_ARGS+=(-e "$pair")
-  ENV_JSON+=", \"${pair%%=*}\": \"${pair#*=}\""
+ENV_PAIRS=()
+for pair in "ITFIN_URL=$URL" "ITFIN_BROWSER=$BROWSER" "ITFIN_WORK_START=$WORK_START" "ITFIN_TIMEZONE=$TIMEZONE"; do
+  [[ -n "${pair#*=}" ]] && ENV_PAIRS+=("$pair")
 done
+ENV_ARGS=()
+for pair in "${ENV_PAIRS[@]}"; do ENV_ARGS+=(-e "$pair"); done
 
 if command -v claude >/dev/null; then
   echo "→ Registering the MCP server with Claude Code (user scope)"
@@ -104,20 +109,33 @@ tool_timeout_sec = 240
 ' "$CODEX_CONFIG"
 fi
 
-command -v claude >/dev/null || command -v codex >/dev/null || echo "! Neither the Claude Code nor the Codex CLI was found, so nothing was registered."
+DESKTOP=""
+if [[ -d /Applications/Claude.app || -f "$DESKTOP_CONFIG" ]]; then
+  echo "→ Registering the MCP server with Claude Desktop"
+  # Replaces only mcpServers.itfin and keeps the rest of the file. The old file is kept as .bak.
+  if node -e '
+    const fs = require("fs");
+    const [file, command, entry, ...pairs] = process.argv.slice(1);
+    const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+    const config = text.trim() ? JSON.parse(text) : {};
+    if (text) fs.writeFileSync(file + ".bak", text);
+    const env = Object.fromEntries(pairs.map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]));
+    config.mcpServers = { ...config.mcpServers, itfin: { command, args: [entry], env } };
+    fs.mkdirSync(require("path").dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
+  ' "$DESKTOP_CONFIG" "$NODE" "$ENTRY" "${ENV_PAIRS[@]}"; then
+    DESKTOP=1
+  else
+    echo "! Could not update $DESKTOP_CONFIG (is it valid JSON?), so Claude Desktop was not registered."
+  fi
+fi
 
-cat <<EOF
+command -v claude >/dev/null || command -v codex >/dev/null || [[ -n "$DESKTOP" ]] ||
+  echo "! Neither Claude Code, Codex nor Claude Desktop was found, so nothing was registered."
 
-✓ itfin-mcp is installed in $DIR
-
-For Claude Desktop, add this to ~/Library/Application Support/Claude/claude_desktop_config.json under "mcpServers":
-
-  "itfin": {
-    "command": "$NODE",
-    "args": ["$ENTRY"],
-    "env": { $ENV_JSON }
-  }
-
-Next: start a new Claude session and ask it to "log in to ITFin".
-Run this script again at any time to update.
-EOF
+echo
+echo "✓ itfin-mcp is installed in $DIR"
+# Claude Desktop reads its config only at startup. Not quit here: it may be running this script.
+[[ -n "$DESKTOP" ]] && echo "Restart Claude Desktop (Cmd+Q, then open it) to load the server."
+echo "Next: start a new session and ask it to \"log in to ITFin\"."
+echo "Run this script again at any time to update."

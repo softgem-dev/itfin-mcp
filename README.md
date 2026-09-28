@@ -11,8 +11,10 @@ You need macOS, Node.js 22+ and Chrome, Edge, Brave, Arc or Chromium.
    curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
    ```
 2. Type your company name: `acme` for `https://acme.itfin.io`.
-3. Claude Desktop only: paste the snippet the script prints into `~/Library/Application Support/Claude/claude_desktop_config.json`, then restart the app.
+3. Claude Desktop only: restart it (Cmd+Q, then open it).
 4. Start a new session and say **"log in to ITFin"**.
+
+The script sets up Claude Code, Codex and Claude Desktop, whichever you have.
 
 ## Update
 
