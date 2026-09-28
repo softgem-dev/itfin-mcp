@@ -35,7 +35,7 @@ describe("itfin_get_entries", () => {
     });
     expect(byDate["2026-09-24"].status).toBe("open");
     expect(byDate["2026-09-25"].status).toBe("future");
-    expect(h.itfin.requests.at(-1)!.headers.authorization).toMatch(/^Bearer ey/);
+    expect(h.itfin.requests.at(-1)!.headers.authorization).toMatch(/^ey/);
   });
 
   it("fails with AUTH_REQUIRED and calls nothing when there is no ITFin token", async () => {
