@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Quick install for itfin-mcp: clones or updates the repo, builds it and registers the MCP server
-# with Claude Code, Codex and Claude Desktop. Usage:
-#   curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
-#   curl -fsSL .../install.sh | bash -s -- --company acme [--clients claude,codex,desktop] [--browser chrome] [--work-start 10:00] [--timezone Europe/Kyiv]
+# Quick install for itfin-mcp: installs or updates the npm package in ~/.itfin-mcp and registers the
+# MCP server with Claude Code, Codex and Claude Desktop. Usage:
+#   npx itfin-mcp install [--company acme] [--clients claude,codex,desktop] [--browser chrome] [--work-start 10:00] [--timezone Europe/Kyiv]
+#   curl -fsSL https://raw.githubusercontent.com/steven-tailor/itfin-mcp/main/scripts/install.sh | bash -s -- [same flags]
 # The first install asks which apps to install for and the company name. Updates reuse the apps and
 # settings of the previous install.
 set -euo pipefail
 
-REPO="https://github.com/softgem-dev/itfin-mcp.git"
 DIR="${ITFIN_MCP_DIR:-$HOME/.itfin-mcp}"
+# What npm installs. Override it to try a local build: ITFIN_MCP_PACKAGE=./itfin-mcp-0.1.0.tgz
+PACKAGE="${ITFIN_MCP_PACKAGE:-itfin-mcp@latest}"
 CODEX_CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 URL="" BROWSER="" WORK_START="" TIMEZONE="" CLIENTS=""
@@ -31,27 +32,47 @@ fail() { echo "✗ $*" >&2; exit 1; }
 ask() { local prompt="$1" default="${2:-}" answer; read -r -p "$prompt${default:+ [$default]}: " answer </dev/tty || true; echo "${answer:-$default}"; }
 
 [[ "$(uname)" == "Darwin" ]] || fail "itfin-mcp needs macOS (Keychain, launchd and notifications)."
-command -v git >/dev/null || fail "git is required."
 command -v node >/dev/null || fail "Node.js 22+ is required: https://nodejs.org"
 [[ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ]] || fail "Node.js 22+ is required (found $(node -v))."
+command -v npm >/dev/null || fail "npm is required. It comes with Node.js: https://nodejs.org"
 
+PKG="$DIR/node_modules/itfin-mcp"
+version() { node -p 'require(process.argv[1]).version' "$PKG/package.json" 2>/dev/null || true; }
+OLD_VERSION="$(version)"
+# Installs before the npm package were a git clone of the repo, which npm can't install into. Only
+# a clean clone made by the old installer is replaced, never a checkout someone works in.
+LEGACY=""
 if [[ -d "$DIR/.git" ]]; then
-  echo "→ Updating $DIR"
-  OLD_REV="$(git -C "$DIR" rev-parse HEAD)"
-  git -C "$DIR" pull --ff-only --quiet
-else
-  echo "→ Cloning into $DIR"
-  git clone --quiet "$REPO" "$DIR"
+  ORIGIN="$(git -C "$DIR" remote get-url origin 2>/dev/null || true)"
+  [[ "$ORIGIN" =~ ^https://github\.com/(softgem-dev|steven-tailor)/itfin-mcp(\.git)?$ && -z "$(git -C "$DIR" status --porcelain 2>/dev/null)" ]] \
+    || fail "$DIR is a git repo other than an itfin-mcp install, or has local changes. Pick another folder with --dir."
+  LEGACY=1
+  OLD_VERSION="git"
 fi
 
-echo "→ Installing dependencies and building"
-(cd "$DIR" && npm ci --silent --no-audit --no-fund && npm run --silent build)
+# A git install is replaced only after npm succeeds, so a failed update leaves it working.
+TARGET="$DIR"
+[[ -n "$LEGACY" ]] && TARGET="$DIR.npm-$$"
+echo "→ Installing $PACKAGE from npm"
+mkdir -p "$TARGET"
+if ! npm install --prefix "$TARGET" --silent --no-audit --no-fund --omit=dev "$PACKAGE"; then
+  [[ -n "$LEGACY" ]] && rm -rf "$TARGET"
+  fail "npm could not install $PACKAGE."
+fi
+if [[ -n "$LEGACY" ]]; then
+  echo "→ Replacing the git clone in $DIR with the npm package"
+  rm -rf "$DIR"
+  mv "$TARGET" "$DIR"
+fi
+NEW_VERSION="$(version)"
+[[ -n "$NEW_VERSION" ]] || fail "npm did not install itfin-mcp into $DIR."
 
 # Servers that apps started before this update keep running the old code until they exit. Stop them,
 # matching only the node processes (not the wrappers apps launch them with), so no app keeps using
 # stale tools. Each app starts a fresh server for its next session, or after a restart.
+# The pattern also matches the dist/index.js of a replaced git clone.
 STALE=""
-[[ -n "${OLD_REV:-}" && "$OLD_REV" != "$(git -C "$DIR" rev-parse HEAD)" ]] && STALE="$(pgrep -f "^[^ ]*node $DIR/dist/index\.js\$" || true)"
+[[ -n "$OLD_VERSION" && "$OLD_VERSION" != "$NEW_VERSION" ]] && STALE="$(pgrep -f "^[^ ]*node $DIR/(node_modules/itfin-mcp/)?dist/index\.js\$" || true)"
 if [[ -n "$STALE" ]]; then
   echo "→ Stopping $(echo "$STALE" | wc -l | tr -d ' ') running itfin-mcp server(s) with the old code"
   kill $STALE 2>/dev/null || true
@@ -71,7 +92,7 @@ if [[ -z "$CLIENTS" ]]; then
   [[ -d /Applications/Claude.app || -f "$DESKTOP_CONFIG" ]] && FOUND+=("desktop=Claude Desktop")
   [[ ${#FOUND[@]} -gt 0 ]] || fail "Install Claude Code, Codex or Claude Desktop first."
   if (: </dev/tty) 2>/dev/null; then
-    CLIENTS="$(node "$DIR/scripts/pick-clients.mjs" "${FOUND[@]}")" || fail "Cancelled."
+    CLIENTS="$(node "$PKG/scripts/pick-clients.mjs" "${FOUND[@]}")" || fail "Cancelled."
   else
     for found in "${FOUND[@]}"; do CLIENTS+="${found%%=*} "; done
   fi
@@ -120,7 +141,7 @@ URL="${URL%/}"
 [[ "$URL" =~ ^https?://[^/]+$ ]] || fail "Workspace address must look like https://acme.itfin.io"
 echo "→ Workspace: $URL"
 
-ENTRY="$DIR/dist/index.js"
+ENTRY="$PKG/dist/index.js"
 # Absolute path, because Claude Desktop does not see version-manager shims on PATH.
 NODE="$(command -v node)"
 # Settings left empty are not passed, so the server uses its defaults (chrome, 10:00, system timezone).
@@ -171,9 +192,9 @@ if wants desktop; then
 fi
 
 echo
-echo "✓ itfin-mcp is installed in $DIR"
+echo "✓ itfin-mcp $NEW_VERSION is installed in $DIR"
 # Claude Desktop reads its config only at startup. Not quit here: it may be running this script.
 [[ -n "$DESKTOP" ]] && echo "Restart Claude Desktop (Cmd+Q, then open it) to load the server."
 [[ -n "${STALE:-}" ]] && echo "Open sessions lost the ITFin tools: start a new session, or reconnect itfin with /mcp in Claude Code."
 echo "Next: start a new session and ask it to \"log in to ITFin\"."
-echo "Run this script again at any time to update."
+echo "Run npx itfin-mcp@latest install at any time to update."

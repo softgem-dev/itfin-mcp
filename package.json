@@ -2,26 +2,49 @@
   "name": "itfin-mcp",
   "version": "0.1.0",
   "description": "Local MCP server for ITFin: projects, time entries and ITFin token lifecycle",
+  "keywords": [
+    "mcp",
+    "itfin",
+    "claude",
+    "codex",
+    "timesheet"
+  ],
+  "license": "MIT",
+  "author": "Steven Tailor <stv.tailor@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/steven-tailor/itfin-mcp.git"
+  },
+  "homepage": "https://github.com/steven-tailor/itfin-mcp#readme",
+  "bugs": "https://github.com/steven-tailor/itfin-mcp/issues",
   "type": "module",
   "bin": {
     "itfin-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "scripts"
+  ],
+  "os": [
+    "darwin"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepack": "npm run build"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
+    "@inquirer/checkbox": "^5.2.5",
     "@modelcontextprotocol/sdk": "^1.30.1",
     "luxon": "^3.7.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@inquirer/checkbox": "^5.2.5",
     "@types/luxon": "^3.7.5",
     "@types/node": "^26.6.2",
     "typescript": "^7.0.2",
