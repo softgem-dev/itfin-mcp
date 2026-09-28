@@ -38,20 +38,32 @@ command -v npm >/dev/null || fail "npm is required. It comes with Node.js: https
 
 PKG="$DIR/node_modules/itfin-mcp"
 version() { node -p 'require(process.argv[1]).version' "$PKG/package.json" 2>/dev/null || true; }
-OLD_VERSION=""
+OLD_VERSION="$(version)"
+# Installs before the npm package were a git clone of the repo, which npm can't install into. Only
+# a clean clone made by the old installer is replaced, never a checkout someone works in.
+LEGACY=""
 if [[ -d "$DIR/.git" ]]; then
-  # Installs before the npm package were a git clone of the repo, which npm can't install into.
-  [[ "$(git -C "$DIR" remote get-url origin 2>/dev/null)" == *itfin-mcp* ]] || fail "$DIR is a git repo that isn't itfin-mcp. Pick another folder with --dir."
-  echo "→ Replacing the git clone in $DIR with the npm package"
+  ORIGIN="$(git -C "$DIR" remote get-url origin 2>/dev/null || true)"
+  [[ "$ORIGIN" =~ ^https://github\.com/(softgem-dev|steven-tailor)/itfin-mcp(\.git)?$ && -z "$(git -C "$DIR" status --porcelain 2>/dev/null)" ]] \
+    || fail "$DIR is a git repo other than an itfin-mcp install, or has local changes. Pick another folder with --dir."
+  LEGACY=1
   OLD_VERSION="git"
-  rm -rf "$DIR"
-else
-  OLD_VERSION="$(version)"
 fi
 
+# A git install is replaced only after npm succeeds, so a failed update leaves it working.
+TARGET="$DIR"
+[[ -n "$LEGACY" ]] && TARGET="$DIR.npm-$$"
 echo "→ Installing $PACKAGE from npm"
-mkdir -p "$DIR"
-npm install --prefix "$DIR" --silent --no-audit --no-fund --omit=dev "$PACKAGE"
+mkdir -p "$TARGET"
+if ! npm install --prefix "$TARGET" --silent --no-audit --no-fund --omit=dev "$PACKAGE"; then
+  [[ -n "$LEGACY" ]] && rm -rf "$TARGET"
+  fail "npm could not install $PACKAGE."
+fi
+if [[ -n "$LEGACY" ]]; then
+  echo "→ Replacing the git clone in $DIR with the npm package"
+  rm -rf "$DIR"
+  mv "$TARGET" "$DIR"
+fi
 NEW_VERSION="$(version)"
 [[ -n "$NEW_VERSION" ]] || fail "npm did not install itfin-mcp into $DIR."
 
