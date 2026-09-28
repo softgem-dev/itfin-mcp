@@ -73,17 +73,6 @@ npm test
 npm run typecheck
 ```
 
-To try a local build with the installer, pack it and point the installer at the tarball:
-
-```bash
-npm pack
-ITFIN_MCP_PACKAGE=$PWD/itfin-mcp-0.1.0.tgz bash scripts/install.sh
-```
-
-## Releases
-
-Every merge into `main` publishes to npm ([workflow](.github/workflows/publish.yml)) as the next patch version and tags it `v<version>`. For a minor or major release, raise `version` in `package.json` in the PR.
-
 ## License
 
 The code is [MIT](LICENSE), copyright Steven Tailor.
