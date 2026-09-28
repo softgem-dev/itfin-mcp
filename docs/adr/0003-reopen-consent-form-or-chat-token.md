@@ -1,5 +1,7 @@
 # Reopen request consent: a confirmation form when it works, a chat confirmation token otherwise
 
+Superseded by [0004](0004-requests-filed-on-the-users-word.md).
+
 A reopen request goes to the user's manager, so the server never files one without the user's per-call consent. The server first asks through an MCP confirmation form (elicitation). Some apps advertise forms but never show them: the Claude desktop Code tab answers straight away without displaying anything. So an answer that comes faster than a person could give (under 1 s) is not treated as consent or refusal, even when it is an accept. In that case, or when the app doesn't support forms, the server files nothing. Instead it returns a preview plus a one-time `confirmationToken`, valid for 10 minutes and bound to the tool and the exact dates and reason. The agent must show the preview in chat and call again with the token only after the user explicitly agrees.
 
 ## Considered Options
