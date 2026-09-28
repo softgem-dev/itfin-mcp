@@ -34,15 +34,15 @@ Add flags to the install command to change a setting:
 curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash -s -- --browser brave --work-start 09:00
 ```
 
-| Flag | Variable | Default | Sets |
-|---|---|---|---|
-| `--clients claude,codex,desktop` | | asked | Apps to install for |
-| `--company acme` | `ITFIN_URL` | asked | Workspace `https://acme.itfin.io` |
-| `--url <address>` | `ITFIN_URL` | | Workspace not on `itfin.io` |
-| `--browser` | `ITFIN_BROWSER` | `chrome` | `chrome`, `edge`, `brave`, `arc`, `chromium` or a path to the browser |
-| `--work-start` | `ITFIN_WORK_START` | `10:00` | When relogin reminders fire |
-| `--timezone` | `ITFIN_TIMEZONE` | system | IANA timezone, e.g. `Europe/Kyiv` |
-| `--dir` | | `~/.itfin-mcp` | Install folder |
+| Flag | Default | Sets |
+|---|---|---|
+| `--clients claude,codex,desktop` | asked | Apps to install for |
+| `--company acme` | asked | Workspace `https://acme.itfin.io` |
+| `--url <address>` | | Workspace not on `itfin.io` |
+| `--browser` | `chrome` | `chrome`, `edge`, `brave`, `arc`, `chromium` or a path to the browser |
+| `--work-start` | `10:00` | When relogin reminders fire |
+| `--timezone` | system | IANA timezone, e.g. `Europe/Kyiv` |
+| `--dir` | `~/.itfin-mcp` | Install folder |
 
 ## Tools
 
@@ -60,34 +60,9 @@ curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/
 
 You confirm every reopen and leave request before it's sent.
 
-## Other MCP clients (Cursor, OpenAI Agents SDK, …)
-
-1. Run the install above.
-2. Add this to the client's config:
-   ```json
-   {
-     "mcpServers": {
-       "itfin": {
-         "command": "/absolute/path/to/node",
-         "args": ["/Users/<you>/.itfin-mcp/dist/index.js"],
-         "env": { "ITFIN_URL": "https://<company>.itfin.io" }
-       }
-     }
-   }
-   ```
-3. Set the tool timeout to 240 seconds or more. Login waits up to 3 minutes.
-
-The client must run on your Mac. Hosted agents, such as ChatGPT connectors, can't use it.
-
 ## Development
 
 ```bash
 npm test
 npm run typecheck
-```
-
-Tests use a fake ITFin and the real Keychain (service `itfin-mcp-test`). To smoke-test against a real workspace (read-only):
-
-```bash
-ITFIN_LIVE=1 ITFIN_URL=https://<company>.itfin.io npx vitest run test/live.test.ts
 ```
