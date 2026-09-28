@@ -1,135 +1,91 @@
 # itfin-mcp
 
-A local MCP server that gives an agent (Claude Code, Claude Desktop, Codex or any other MCP client) access to your ITFin workspace. It can read the projects you can report to, read your time entries, and create, update and delete them. It also looks after your ITFin token.
+Report time and request leave in ITFin by chatting with Claude Code, Codex or Claude Desktop.
 
-Deciding what to report is up to the agent's instructions, for example a daily scheduled task. The server only talks to ITFin. See `docs/adr/0001-mcp-is-a-thin-itfin-client.md`.
+## Install (about 2 minutes)
 
-## Requirements
+You need macOS, Node.js 22+ and Chrome, Edge, Brave, Arc or Chromium.
 
-- macOS (the token lives in the Keychain; relogin reminders use launchd and notifications)
-- Node.js 22+
-- A Chromium-based browser for login: Chrome, Edge, Brave, Arc or Chromium
+1. Run:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
+   ```
+2. Type your company name: `acme` for `https://acme.itfin.io`.
+3. Claude Desktop only: paste the snippet the script prints into `~/Library/Application Support/Claude/claude_desktop_config.json`, then restart the app.
+4. Start a new session and say **"log in to ITFin"**.
 
-## Quick install
+## Update
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
-```
+Run the same command again. It keeps your settings and asks nothing.
 
-The script:
-1. clones or updates the repo in `~/.itfin-mcp`;
-2. builds it;
-3. asks for your company name, e.g. `acme` for `https://acme.itfin.io` (pasting the full address works too). That's the only question;
-4. registers the server with Claude Code and Codex, if their CLIs are installed. For Claude Desktop, it prints the config snippet to paste.
+## Log in (once a week)
 
-Run it again to update. Updates ask nothing: they keep the settings of the current Claude Code or Codex registration. If neither is registered (Claude Desktop only), it asks for the company name again.
+1. Say **"log in to ITFin"**.
+2. Pick your Google account in the window that opens.
 
-The browser, start of the working day and timezone use their defaults (see the table below). To set them, or to skip the question, pass flags:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash -s -- --company acme --browser brave --work-start 09:00 --timezone Europe/Kyiv
-```
-
-Flags override the saved settings, so they also change them on an update. Other flags:
-- `--url https://itfin.example.com` instead of `--company`, for a workspace that isn't on `itfin.io`;
-- `--dir <path>` to install somewhere other than `~/.itfin-mcp` (or set `ITFIN_MCP_DIR`).
-
-## Other MCP clients (OpenAI Agents SDK, Cursor, and similar)
-
-Run the quick install first: it builds the server into `~/.itfin-mcp`. It is a local **stdio** server, so any client that can launch one works. Give it the command `node /Users/<you>/.itfin-mcp/dist/index.js` and the settings below. Most clients take the same JSON shape:
-
-```json
-{
-  "mcpServers": {
-    "itfin": {
-      "command": "/absolute/path/to/node",
-      "args": ["/Users/<you>/.itfin-mcp/dist/index.js"],
-      "env": { "ITFIN_URL": "https://<workspace>.itfin.io" }
-    }
-  }
-}
-```
-
-With the OpenAI Agents SDK (Python):
-
-```python
-from agents import Agent, Runner
-from agents.mcp import MCPServerStdio
-
-async with MCPServerStdio(
-    name="itfin",
-    params={
-        "command": "node",
-        "args": ["/Users/<you>/.itfin-mcp/dist/index.js"],
-        "env": {"ITFIN_URL": "https://<workspace>.itfin.io"},
-    },
-    client_session_timeout_seconds=240,  # itfin_login waits up to 3 minutes
-) as itfin:
-    agent = Agent(name="Timesheets", mcp_servers=[itfin])
-    result = await Runner.run(agent, "What did I report this week?")
-```
-
-Things to know for any client:
-- The server must run on the same Mac as you. It opens the login browser, reads the Keychain and schedules notifications. ChatGPT connectors and other hosted agents only reach remote MCP servers, so they can't use it.
-- Use absolute paths. GUI apps often don't see `nvm` or Homebrew shims on `PATH`.
-- If the client can't show confirmation forms (MCP elicitation), reopen and leave requests are confirmed in chat with a one-time token instead (ADR 0003).
+ITFin tokens last 7 days and can't be extended. A macOS notification reminds you at the start of your working day before yours expires.
 
 ## Settings
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `ITFIN_URL` | required | Workspace address, e.g. `https://acme.itfin.io` |
-| `ITFIN_BROWSER` | `chrome` | `chrome`, `edge`, `brave`, `arc`, `chromium` or a path to the browser binary |
-| `ITFIN_WORK_START` | `10:00` | Start of working time; relogin reminders fire then |
-| `ITFIN_TIMEZONE` | system timezone | IANA timezone for working time and "today" |
+Add flags to the install command to change a setting:
 
-## Logging in
+```bash
+curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash -s -- --browser brave --work-start 09:00
+```
 
-Ask your agent to log in to ITFin. A browser window opens on your workspace, and you sign in with Google. The server picks up the new ITFin token, stores it in the Keychain and schedules a macOS notification for the next relogin. ITFin tokens are valid for exactly 7 days and can't be refreshed.
-
-The login browser uses its own profile (`~/Library/Application Support/itfin-mcp/browser-profile`), so next time you only pick your Google account. The server only watches for the ITFin token cookie. It never clicks or types anything in the browser.
+| Flag | Variable | Default | Sets |
+|---|---|---|---|
+| `--company acme` | `ITFIN_URL` | asked | Workspace `https://acme.itfin.io` |
+| `--url <address>` | `ITFIN_URL` | | Workspace not on `itfin.io` |
+| `--browser` | `ITFIN_BROWSER` | `chrome` | `chrome`, `edge`, `brave`, `arc`, `chromium` or a path to the browser |
+| `--work-start` | `ITFIN_WORK_START` | `10:00` | When relogin reminders fire |
+| `--timezone` | `ITFIN_TIMEZONE` | system | IANA timezone, e.g. `Europe/Kyiv` |
+| `--dir` | | `~/.itfin-mcp` | Install folder |
 
 ## Tools
 
-| Tool | What it does |
+| Tool | Does |
 |---|---|
-| `itfin_login` | Opens the login window and stores the new ITFin token |
-| `itfin_auth_status` | Whether the token is valid, when it expires, and when the next relogin reminder is due |
-| `itfin_list_projects(date)` | Projects you can report to on a date, with `clientAgreementId` and tasks |
-| `itfin_get_entries(from, to)` | Days with time entries and status `open`, `closed` or `future` |
-| `itfin_create_entry` | Creates a time entry |
-| `itfin_update_entry` | Changes only the fields you pass |
-| `itfin_delete_entry` | Deletes a time entry |
-| `itfin_get_workspace_settings` | Minimum comment length, and whether reopen requests are enabled |
-| `itfin_request_reopen` | Asks a manager to reopen closed days. If you give no reason, the agent makes up a funny one. You confirm every time: in a form if the app can show one, otherwise in chat via a one-time confirmation token (ADR 0003) |
-| `itfin_list_reopen_requests` | Your reopen requests and their status |
-| `itfin_list_leave_types` | Leave types you can request (vacation / day off, sick leave, paid or unpaid leave), with the reasons ITFin accepts |
-| `itfin_request_leave` | Asks your manager to approve full or part days of leave; for part of a day, pass `hours` with one date (e.g. 4h off, 4h of work). ITFin checks the balance and dates first, and the preview shows how many days (or hours, for part days) it counts. You confirm every time, like reopen requests. Part days only where your leave policy allows them; carry-over days and requests that need attached documents are left to the ITFin web app |
-| `itfin_list_leave_requests(from?, to?)` | Your leave requests and their status |
-| `itfin_cancel_leave_request(id)` | Cancels one of your leave requests. Only leave requests can be cancelled this way, not reopen requests |
+| `itfin_login` / `itfin_auth_status` | Log in; check when the token expires |
+| `itfin_list_projects` | Projects and tasks you can report to |
+| `itfin_get_entries` | Your time entries, and which days are open, closed or in the future |
+| `itfin_create_entry` / `itfin_update_entry` / `itfin_delete_entry` | Change time entries |
+| `itfin_get_workspace_settings` | Minimum comment length; whether reopen requests are on |
+| `itfin_request_reopen` / `itfin_list_reopen_requests` | Ask a manager to reopen closed days; see your requests |
+| `itfin_list_leave_types` | Leave types and reasons you can use |
+| `itfin_request_leave` | Request full days, or some hours of one day |
+| `itfin_list_leave_requests` / `itfin_cancel_leave_request` | See or cancel your leave requests |
 
-Errors come back as `{ "error": { "code": ... } }`. The codes are:
+You confirm every reopen and leave request before it's sent.
 
-- `AUTH_REQUIRED`: log in again.
-- `DAY_CLOSED`: the reporting period is closed. The error includes the matching reopen requests and a hint.
-- `DAY_IN_FUTURE`: the day can't be reported yet.
-- `VALIDATION`: the input was rejected before sending, or ITFin said the leave can't be requested.
-- `NOT_FOUND`: the entry or leave request doesn't exist.
-- `CONFIRMATION_DECLINED` / `CONFIRMATION_CANCELLED`: you declined or dismissed the confirmation form, so nothing was filed.
-- `CONFIRMATION_INVALID`: the chat confirmation token is unknown, expired, already used, or doesn't match the request.
-- `ITFIN_ERROR`: any other error, with ITFin's message.
+## Other MCP clients (Cursor, OpenAI Agents SDK, …)
+
+1. Run the install above.
+2. Add this to the client's config:
+   ```json
+   {
+     "mcpServers": {
+       "itfin": {
+         "command": "/absolute/path/to/node",
+         "args": ["/Users/<you>/.itfin-mcp/dist/index.js"],
+         "env": { "ITFIN_URL": "https://<company>.itfin.io" }
+       }
+     }
+   }
+   ```
+3. Set the tool timeout to 240 seconds or more. Login waits up to 3 minutes.
+
+The client must run on your Mac. Hosted agents, such as ChatGPT connectors, can't use it.
 
 ## Development
 
 ```bash
-npm run typecheck
 npm test
+npm run typecheck
 ```
 
-Tests run against a fake ITFin and a fixed clock, and use the real Keychain under the `itfin-mcp-test` service. A read-only smoke test against a live workspace is opt-in:
+Tests use a fake ITFin and the real Keychain (service `itfin-mcp-test`). To smoke-test against a real workspace (read-only):
 
 ```bash
-ITFIN_LIVE=1 ITFIN_URL=https://<workspace>.itfin.io npx vitest run test/live.test.ts
+ITFIN_LIVE=1 ITFIN_URL=https://<company>.itfin.io npx vitest run test/live.test.ts
 ```
-
-Checked by hand, not in automated tests: the real Google login in the browser, and the launchd reminder firing.
