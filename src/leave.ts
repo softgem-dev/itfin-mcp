@@ -1,8 +1,17 @@
 // Leave requests (vacation, sick leave, paid and unpaid leave), mirroring ITFin's "Request time off" form.
 
+/** ITFin's v3 leave type ids are hash strings; numbers are accepted in case a workspace still returns them. */
+export type LeaveTypeId = string | number;
+
+/** Leave type ids compared as strings, so "12" and 12 are the same type. */
+export function sameLeaveTypeId(a: LeaveTypeId, b: LeaveTypeId): boolean {
+  return String(a) === String(b);
+}
+
 /** A leave type from `GET /v3/timeoff-types/available/:date/:employeeId`. */
 export interface RawLeaveType {
-  id: number;
+  /** A hash id such as "YvDrZ"; ITFin expects it back unchanged when a leave is requested. */
+  id: LeaveTypeId;
   name: string;
   /** Paid | Unpaid | CarryOver */
   type?: string;
@@ -26,7 +35,7 @@ export interface RawLeaveRequestInfo {
 
 /** A leave type's policy for the user from `POST /v3/timeoff/stats`. */
 export interface RawLeaveTypeStat {
-  timeoffTypeId: number;
+  timeoffTypeId: LeaveTypeId;
   timeForRequest?: { isAllowedToRequestPartDay?: boolean; fixedMinutesForRequest?: number | null } | null;
   [key: string]: unknown;
 }

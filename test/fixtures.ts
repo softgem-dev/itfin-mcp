@@ -103,13 +103,14 @@ export function reopenRequest(o: { id: number; from: string; to: string; status:
   return { DateFrom: o.from, DateTo: o.to, CreatedAt: "2026-09-01T08:00:00.000Z", UpdatedAt: "2026-09-01T08:00:00.000Z", Id: o.id, RequestType: "OpenReporting", Status: o.status, Comment: o.comment ?? "Forgot to report last week" };
 }
 
+// Leave type ids are hash strings, as the live API returns them (e.g. "YvDrZ").
 // Leave shapes follow the web app's "Request time off" form (bundle v4.4.25, part days from its current bundle); not recorded live.
 export const leaveTypes = {
   timeoffs: [
-    { id: 11, name: "Vacation", type: "Paid", oldSystemTimeoffName: "Vacation" },
-    { id: 12, name: "Sick leave", type: "Paid", oldSystemTimeoffName: "Sickness" },
-    { id: 13, name: "Unpaid leave", type: "Unpaid", oldSystemTimeoffName: "Unpaid" },
-    { id: 14, name: "Shift day", type: "CarryOver", oldSystemTimeoffName: "CarryOver" },
+    { id: "YvDrZ", name: "Vacation", type: "Paid", oldSystemTimeoffName: "Vacation" },
+    { id: "k3Pq9", name: "Sick leave", type: "Paid", oldSystemTimeoffName: "Sickness" },
+    { id: "y4JmZ", name: "Unpaid leave", type: "Unpaid", oldSystemTimeoffName: "Unpaid" },
+    { id: "Zx8Lw", name: "Shift day", type: "CarryOver", oldSystemTimeoffName: "CarryOver" },
   ],
 };
 
@@ -117,8 +118,8 @@ export function leaveRequestInfo(o: { requestedDays?: number; requestedHours?: n
   return { isAvailableToRequest: true, isAttachFileToRequest: false, availableDays: 18, requestedDays: 2, minDays: 0, requestedHours: 16, ...o };
 }
 
-export function leaveTypeStats(o: { timeoffTypeId?: number; isAllowedToRequestPartDay?: boolean } = {}) {
-  return { stats: [{ timeoffTypeId: o.timeoffTypeId ?? 12, isEnabled: true, timeForRequest: { isAllowedToRequestPartDay: o.isAllowedToRequestPartDay ?? true, fixedMinutesForRequest: null } }] };
+export function leaveTypeStats(o: { timeoffTypeId?: string | number; isAllowedToRequestPartDay?: boolean } = {}) {
+  return { stats: [{ timeoffTypeId: o.timeoffTypeId ?? "k3Pq9", isEnabled: true, timeForRequest: { isAllowedToRequestPartDay: o.isAllowedToRequestPartDay ?? true, fixedMinutesForRequest: null } }] };
 }
 
 export function leaveRequest(o: { id: number; type: string; from: string; to: string; status: string }) {
