@@ -58,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/
 | `itfin_request_leave` | Request full days, or some hours of one day |
 | `itfin_list_leave_requests` / `itfin_cancel_leave_request` | See or cancel your leave requests |
 
-You confirm every reopen and leave request before it's sent.
+Reopen and leave requests are sent as soon as you ask for them. Your manager still approves them.
 
 ## Development
 

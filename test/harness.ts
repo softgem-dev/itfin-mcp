@@ -2,7 +2,6 @@ import { createServer as createHttpServer, type IncomingMessage, type Server } f
 import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createItfinServer } from "../src/server.js";
 import { KeychainTokenStore } from "../src/tokenStore.js";
 import type { Config } from "../src/config.js";
@@ -78,27 +77,16 @@ export const sec = (iso: string) => Math.floor(Date.parse(iso) / 1000);
 
 export const TEST_KEYCHAIN_SERVICE = "itfin-mcp-test";
 
-/** Answers faster than this count as "the client answered without showing the form". */
-const INSTANT_ANSWER_MS = 40;
-/** A simulated human answer time, comfortably above INSTANT_ANSWER_MS. */
-export const HUMAN_MS = 80;
-
 export interface Harness {
   itfin: FakeItfin;
   client: Client;
   store: KeychainTokenStore;
   setNow(iso: string): void;
   call(name: string, args?: Record<string, unknown>): Promise<{ isError: boolean; data: any }>;
-  /** Answer the next confirmation prompts from the server with this action. */
-  elicitAnswer: { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
-  /** How long the simulated user takes to answer; 0 mimics a client that answers without showing the form. */
-  elicitDelayMs: number;
-  /** Messages of the confirmation prompts the server showed, oldest first. */
-  elicitMessages: string[];
   close(): Promise<void>;
 }
 
-export async function startHarness(opts: { now: string; config?: Partial<Config>; elicitation?: boolean }): Promise<Harness> {
+export async function startHarness(opts: { now: string; config?: Partial<Config> }): Promise<Harness> {
   const itfin = new FakeItfin();
   await itfin.start();
   let now = new Date(opts.now);
@@ -111,19 +99,13 @@ export async function startHarness(opts: { now: string; config?: Partial<Config>
   };
   const store = new KeychainTokenStore(TEST_KEYCHAIN_SERVICE, config.workspaceUrl);
   await store.clear();
-  const server = createItfinServer({ config, clock: { now: () => now }, tokenStore: store, retryDelayMs: 0, instantAnswerMs: INSTANT_ANSWER_MS });
+  const server = createItfinServer({ config, clock: { now: () => now }, tokenStore: store, retryDelayMs: 0 });
 
-  const client = new Client(
-    { name: "test-client", version: "0" },
-    { capabilities: opts.elicitation === false ? {} : { elicitation: {} } },
-  );
+  const client = new Client({ name: "test-client", version: "0" });
   const harness: Harness = {
     itfin,
     client,
     store,
-    elicitAnswer: { action: "accept" },
-    elicitDelayMs: HUMAN_MS,
-    elicitMessages: [],
     setNow(iso) {
       now = new Date(iso);
     },
@@ -138,13 +120,6 @@ export async function startHarness(opts: { now: string; config?: Partial<Config>
       await itfin.stop();
     },
   };
-  if (opts.elicitation !== false) {
-    client.setRequestHandler(ElicitRequestSchema, async (req) => {
-      harness.elicitMessages.push(req.params.message);
-      await new Promise((r) => setTimeout(r, harness.elicitDelayMs));
-      return harness.elicitAnswer;
-    });
-  }
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   return harness;

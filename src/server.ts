@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -36,8 +35,6 @@ export interface ServerDeps {
   /** Opens the login browser; defaults to the configured Chromium-based browser. */
   startLogin?: (maxWaitMs: number) => Promise<LoginSession>;
   reminders?: ReminderScheduler;
-  /** A confirmation-form answer faster than this means the app never showed the form. */
-  instantAnswerMs?: number;
 }
 
 /** How long itfin_login blocks before it keeps waiting in the background. */
@@ -89,16 +86,14 @@ interface RawReopenRequest {
 }
 
 const REOPEN_REASON_MIN = 10;
-/** How long a chat-confirmation token for a reopen request stays valid. */
-const CONFIRMATION_TOKEN_TTL_MS = 10 * 60 * 1000;
 
 const REOPEN_HINT =
-  "The reporting period for these days is closed. With the user's explicit agreement you can file a reopen request (itfin_request_reopen); a manager must approve it.";
+  "The reporting period for these days is closed. If the user asks or agrees, you can file a reopen request (itfin_request_reopen); a manager must approve it.";
 
 /** How the agent fills in the reason when the user didn't give one. */
 const REOPEN_REASON_HINT =
   "Reason shown to the manager, at least 10 characters. If the user didn't give one, invent a short, funny but workplace-safe excuse " +
-  "(one or two sentences, in the user's language, a fresh one every time, no blaming colleagues or real people). The user sees it in the preview before anything is filed.";
+  "(one or two sentences, in the user's language, a fresh one every time, no blaming colleagues or real people). Tell the user which reason you used when you report the result.";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
@@ -144,7 +139,6 @@ function toEntry(e: RawEntry) {
 
 export function createItfinServer(deps: ServerDeps): McpServer {
   const { config, clock, tokenStore } = deps;
-  const instantAnswerMs = deps.instantAnswerMs ?? 1000;
   const server = new McpServer({ name: "itfin-mcp", version: "0.1.0" });
 
   type TokenState =
@@ -339,104 +333,10 @@ export function createItfinServer(deps: ServerDeps): McpServer {
 
   type ReopenRequestInput = { from: string; to: string; reason: string };
 
-  /** What the user is asked to agree to before a request goes to their manager. */
-  interface Consent {
-    /** The tool to call again with the confirmation token. */
-    tool: string;
-    /** e.g. "reopen request"; used in messages. */
-    subject: string;
-    /** The exact arguments the token is bound to. */
-    request: Record<string, unknown>;
-    /** What the user sees in the chat preview. */
-    preview: Record<string, unknown>;
-    /** The confirmation form's text. */
-    message: string;
-    /** The confirmation form's checkbox label. */
-    confirmLabel: string;
-  }
-
-  const pendingConfirmations = new Map<string, { tool: string; request: string; expiresAt: number }>();
-
   async function fileReopenRequest(request: ReopenRequestInput) {
     const body = { RequestType: "OpenReporting", EmployeeId: await employeeId(), DateFrom: request.from, DateTo: request.to, Comment: request.reason };
     const res = await itfin.request<{ Id?: number } | undefined>("POST", "/v1/requests/open-reporting", { body });
     return { requested: true, id: res?.Id };
-  }
-
-  /**
-   * Asks the user through the app's confirmation form. Returns "unavailable" when the app can't show
-   * forms, or answers faster than a person could (it advertised forms but never showed one).
-   */
-  async function confirmWithForm(consent: Consent): Promise<"confirmed" | "unavailable"> {
-    if (!server.server.getClientCapabilities()?.elicitation) return "unavailable";
-    const started = performance.now();
-    let answer;
-    try {
-      answer = await server.server.elicitInput({
-        message: consent.message,
-        requestedSchema: {
-          type: "object",
-          properties: { confirm: { type: "boolean", title: consent.confirmLabel, default: true } },
-        },
-      });
-    } catch (err) {
-      console.error(`[itfin-mcp] confirmation form failed: ${(err as Error).message}`);
-      return "unavailable";
-    }
-    const elicitation = {
-      action: answer.action,
-      confirm: answer.content?.confirm,
-      elapsedMs: Math.round(performance.now() - started),
-    };
-    console.error(`[itfin-mcp] ${consent.subject} confirmation: ${JSON.stringify(elicitation)}`);
-    // No person answers this fast: the app replied without showing the form, so its answer (even an
-    // accept) is not the user's consent.
-    if (elicitation.elapsedMs < instantAnswerMs) return "unavailable";
-    if (answer.action === "accept" && answer.content?.confirm !== false) return "confirmed";
-    if (answer.action === "cancel") {
-      throw new ToolError("CONFIRMATION_CANCELLED", "The user dismissed the confirmation. Nothing was filed.", { elicitation });
-    }
-    throw new ToolError("CONFIRMATION_DECLINED", `The user did not confirm the ${consent.subject}. Nothing was filed.`, { elicitation });
-  }
-
-  function issueConfirmationToken(consent: Consent) {
-    const now = clock.now().getTime();
-    for (const [token, p] of pendingConfirmations) if (p.expiresAt <= now) pendingConfirmations.delete(token);
-    const confirmationToken = randomUUID();
-    const expiresAt = now + CONFIRMATION_TOKEN_TTL_MS;
-    pendingConfirmations.set(confirmationToken, { tool: consent.tool, request: JSON.stringify(consent.request), expiresAt });
-    const args = Object.keys(consent.request).join(", ");
-    return {
-      requested: false,
-      needsUserConfirmation: true,
-      preview: consent.preview,
-      confirmationToken,
-      confirmationExpiresAt: new Date(expiresAt).toISOString(),
-      instructions: `Nothing was filed. Show the preview to the user and ask whether to send it to their manager. Only if they explicitly agree, call ${consent.tool} again with the same ${args} and this confirmationToken.`,
-    };
-  }
-
-  function redeemConfirmationToken(token: string, consent: Pick<Consent, "tool" | "request">): void {
-    const pending = pendingConfirmations.get(token);
-    pendingConfirmations.delete(token);
-    const matches =
-      pending && pending.expiresAt > clock.now().getTime() && pending.tool === consent.tool && pending.request === JSON.stringify(consent.request);
-    if (!matches) {
-      throw new ToolError(
-        "CONFIRMATION_INVALID",
-        "The confirmation token is unknown, expired, already used, or was issued for a different request. Call without a token to get a new one.",
-      );
-    }
-  }
-
-  /** Files `file()` only with the user's consent: a confirmation form, or a chat confirmation token (ADR 0003). */
-  async function withConsent<T>(consent: Consent, confirmationToken: string | undefined, file: () => Promise<T>) {
-    if (confirmationToken !== undefined) {
-      redeemConfirmationToken(confirmationToken, consent);
-      return file();
-    }
-    if ((await confirmWithForm(consent)) === "confirmed") return file();
-    return issueConfirmationToken(consent);
   }
 
   server.registerTool(
@@ -566,11 +466,9 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     {
       title: "Request to reopen closed days",
       description:
-        "Files a reopen request asking a manager to allow reporting on closed days. Only call this after the user has explicitly agreed in the conversation. " +
-        "If the app can show a confirmation form, the user confirms there and the request is filed. Otherwise the result has needsUserConfirmation, a preview and a confirmationToken: " +
-        "show the preview to the user, and only if they explicitly agree, call again with the same from, to, reason and the confirmationToken (valid 10 minutes, single use). " +
+        "Files a reopen request asking a manager to allow reporting on closed days. Call it when the user asks for it or agrees to it in the conversation; that is the go-ahead, with no separate confirmation step. " +
         "If the user didn't say why, make up a funny excuse for the reason yourself instead of asking.",
-      inputSchema: { from: isoDate, to: isoDate, reason: z.string().describe(REOPEN_REASON_HINT), confirmationToken: z.string().optional() },
+      inputSchema: { from: isoDate, to: isoDate, reason: z.string().describe(REOPEN_REASON_HINT) },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     (args) =>
@@ -582,16 +480,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         if (!(await workspaceSettings()).reopenRequestsEnabled) {
           throw new ToolError("VALIDATION", "Reopen requests are disabled in this ITFin workspace.");
         }
-        const request = { from: args.from, to: args.to, reason: args.reason };
-        const consent: Consent = {
-          tool: "itfin_request_reopen",
-          subject: "reopen request",
-          request,
-          preview: request,
-          message: `File an ITFin reopen request for ${request.from} – ${request.to}? Your manager will be asked to approve it.\nReason: ${request.reason}`,
-          confirmLabel: "Send the reopen request",
-        };
-        return withConsent(consent, args.confirmationToken, () => fileReopenRequest(request));
+        return fileReopenRequest({ from: args.from, to: args.to, reason: args.reason });
       }),
   );
 
@@ -699,9 +588,8 @@ export function createItfinServer(deps: ServerDeps): McpServer {
       description:
         "Asks the user's manager to approve full or part days of leave: a day off / vacation, sick leave, paid or unpaid leave. Get leaveTypeId and the allowed reasons from itfin_list_leave_types. " +
         "For part of a day (e.g. 4h off and 4h of work), set hours with from equal to to. " +
-        "Only call this after the user has explicitly asked for the leave. ITFin first checks the request (balance, allowed dates); the result says how many days (or hours, for part days) it counts. " +
-        "If the app can show a confirmation form, the user confirms there and the request is filed. Otherwise the result has needsUserConfirmation, a preview and a confirmationToken: " +
-        "show the preview to the user, and only if they explicitly agree, call again with the same arguments and the confirmationToken (valid 10 minutes, single use).",
+        "Call it when the user asks for the leave in the conversation; that is the go-ahead, with no separate confirmation step. " +
+        "ITFin first checks the request (balance, allowed dates), then it is filed. The result says how many days (or hours, for part days) it counts.",
       inputSchema: {
         leaveTypeId: z.number().int(),
         from: isoDate.describe("First day of leave"),
@@ -715,9 +603,8 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         reason: z
           .string()
           .optional()
-          .describe("One of the leave type's reasons from itfin_list_leave_types, matching what the user said. If the user gave no hint, use \"Other\" for sick leave and the closest fit otherwise; the user sees it in the preview."),
+          .describe("One of the leave type's reasons from itfin_list_leave_types, matching what the user said. If the user gave no hint, use \"Other\" for sick leave and the closest fit otherwise."),
         comment: z.string().describe("Comment for the manager. If the user didn't give one, write a short neutral one in the user's language (e.g. \"Vacation\" or \"Sick, will be back on Monday\")."),
-        confirmationToken: z.string().optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -767,23 +654,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
           throw new ToolError("VALIDATION", `ITFin requires documents attached to a ${type.name} request. Ask the user to file it in the ITFin web app.`, days);
         }
 
-        const period = args.from === args.to ? args.from : `${args.from} – ${args.to}`;
-        const counted =
-          partDay ? `, ${args.hours}h`
-          : info.requestedDays === undefined ? ""
-          : ` (${info.requestedDays} day${info.requestedDays === 1 ? "" : "s"})`;
-        const consent: Consent = {
-          tool: "itfin_request_leave",
-          subject: "leave request",
-          request,
-          preview: { leaveType: type.name, from: args.from, to: args.to, hours: args.hours, reason, comment: args.comment, ...days },
-          message:
-            `Request ${type.name} for ${period}${counted}? Your manager will be asked to approve it.` +
-            (reason ? `\nReason: ${reason}` : "") +
-            `\nComment: ${args.comment}`,
-          confirmLabel: "Send the leave request",
-        };
-        return withConsent(consent, args.confirmationToken, () => fileLeaveRequest(request, type.requestType));
+        return { ...(await fileLeaveRequest(request, type.requestType)), ...days };
       }),
   );
 

@@ -5,8 +5,8 @@ import { leaveRequest, leaveRequestInfo, leaveTypeStats, leaveTypes, me, reopenR
 let h: Harness;
 afterEach(async () => h?.close());
 
-async function loggedIn(opts: { elicitation?: boolean; settings?: unknown; info?: unknown; stats?: unknown } = {}) {
-  h = await startHarness({ now: "2026-09-24T09:00:00Z", elicitation: opts.elicitation });
+async function loggedIn(opts: { settings?: unknown; info?: unknown; stats?: unknown } = {}) {
+  h = await startHarness({ now: "2026-09-24T09:00:00Z" });
   await h.store.save(makeJwt({ iat: sec("2026-09-24T06:00:00Z"), exp: sec("2026-10-01T06:00:00Z") }));
   h.itfin
     .on("GET /api/v1/auth", { body: me })
@@ -65,55 +65,15 @@ describe("itfin_list_leave_requests", () => {
   });
 });
 
-describe("itfin_request_leave with a confirmation form", () => {
-  it("checks the request with ITFin and files it when the user accepts", async () => {
+describe("itfin_request_leave", () => {
+  it("checks the request with ITFin and files it in one call, with the counted days", async () => {
     await loggedIn();
     const res = await h.call("itfin_request_leave", vacation);
-    expect(res).toEqual({ isError: false, data: { requested: true, id: 77 } });
+    expect(res).toEqual({ isError: false, data: { requested: true, id: 77, requestedDays: 2, availableDays: 18, minDays: 0 } });
     expect(h.itfin.writes()).toMatchObject([
       { path: "/api/v3/timeoff/request-info", body: { employeeId: 1001, timeoffId: 11, dateFrom: "2026-10-01", dateTo: "2026-10-02", isPartDay: false } },
       { path: "/api/v2/requests/timeoff", body: filedBody },
     ]);
-  });
-
-  it("files nothing when the user declines", async () => {
-    await loggedIn();
-    h.elicitAnswer = { action: "decline" };
-    const res = await h.call("itfin_request_leave", vacation);
-    expect(res.data.error.code).toBe("CONFIRMATION_DECLINED");
-    expect(res.data.error.message).toContain("leave request");
-    expect(filings()).toHaveLength(0);
-  });
-});
-
-describe("itfin_request_leave confirmed in chat", () => {
-  it("returns a preview with the counted days and files it with the confirmation token", async () => {
-    await loggedIn({ elicitation: false });
-    const { data } = await h.call("itfin_request_leave", vacation);
-    expect(data).toMatchObject({
-      requested: false,
-      needsUserConfirmation: true,
-      preview: { leaveType: "Vacation", from: "2026-10-01", to: "2026-10-02", reason: "Rest and relax", comment: "Vacation", requestedDays: 2, availableDays: 18 },
-    });
-    expect(filings()).toHaveLength(0);
-    const res = await h.call("itfin_request_leave", { ...vacation, confirmationToken: data.confirmationToken });
-    expect(res.data).toEqual({ requested: true, id: 77 });
-    expect(filings()).toMatchObject([{ body: filedBody }]);
-  });
-
-  it("rejects a token issued for a different comment", async () => {
-    await loggedIn({ elicitation: false });
-    const { data } = await h.call("itfin_request_leave", vacation);
-    const res = await h.call("itfin_request_leave", { ...vacation, comment: "Two weeks off", confirmationToken: data.confirmationToken });
-    expect(res.data.error.code).toBe("CONFIRMATION_INVALID");
-    expect(filings()).toHaveLength(0);
-  });
-
-  it("rejects a reopen request's token", async () => {
-    await loggedIn({ elicitation: false });
-    const reopen = await h.call("itfin_request_reopen", { from: "2026-09-14", to: "2026-09-18", reason: "Forgot to report last week" });
-    const res = await h.call("itfin_request_leave", { ...vacation, confirmationToken: reopen.data.confirmationToken });
-    expect(res.data.error.code).toBe("CONFIRMATION_INVALID");
   });
 });
 
@@ -124,8 +84,7 @@ describe("itfin_request_leave for part of a day", () => {
   it("checks and files it with the web form's part-day fields", async () => {
     await loggedIn({ info: partDayInfo });
     const res = await h.call("itfin_request_leave", halfDay);
-    expect(res.data).toEqual({ requested: true, id: 77 });
-    expect(h.elicitMessages[0]).toContain("Request Sick leave for 2026-09-15, 4h?");
+    expect(res.data).toMatchObject({ requested: true, id: 77, requestedHours: 4, availableDays: 18 });
     expect(h.itfin.writes()).toMatchObject([
       { path: "/api/v3/timeoff/stats", body: { employeeId: 1001, timeoffTypeIds: [12], date: "2026-09-24" } },
       {
@@ -139,23 +98,11 @@ describe("itfin_request_leave for part of a day", () => {
     ]);
   });
 
-  it("shows the hours in the chat preview and binds the token to them", async () => {
-    await loggedIn({ elicitation: false, info: partDayInfo });
-    const { data } = await h.call("itfin_request_leave", { ...halfDay, hours: 2.5 });
-    expect(data.preview).toMatchObject({ leaveType: "Sick leave", from: "2026-09-15", hours: 2.5, requestedHours: 4, availableDays: 18 });
-    expect(data.instructions).toContain("leaveTypeId, from, to, hours, reason, comment");
-    expect(h.itfin.writes().at(-1)!.body).toMatchObject({ formattedHours: "02h 30m", hours: 2.5 });
-    const res = await h.call("itfin_request_leave", { ...halfDay, hours: 2.5, confirmationToken: data.confirmationToken });
-    expect(res.data).toEqual({ requested: true, id: 77 });
+  it("files other hours as given", async () => {
+    await loggedIn({ info: partDayInfo });
+    const res = await h.call("itfin_request_leave", { ...halfDay, hours: 2.5 });
+    expect(res.data).toMatchObject({ requested: true, id: 77 });
     expect(filings()).toMatchObject([{ body: { IsPartDay: true, FormattedHours: "02h 30m", Hours: 2.5 } }]);
-  });
-
-  it("rejects a token issued for different hours", async () => {
-    await loggedIn({ elicitation: false, info: partDayInfo });
-    const { data } = await h.call("itfin_request_leave", { ...halfDay, hours: 2.5 });
-    const res = await h.call("itfin_request_leave", { ...halfDay, confirmationToken: data.confirmationToken });
-    expect(res.data.error.code).toBe("CONFIRMATION_INVALID");
-    expect(filings()).toHaveLength(0);
   });
 
   it("covers a single day", async () => {
@@ -193,7 +140,7 @@ describe("itfin_request_leave validation", () => {
   it("sends no reason for leave types without reasons", async () => {
     await loggedIn();
     const res = await h.call("itfin_request_leave", { ...vacation, leaveTypeId: 13, reason: undefined });
-    expect(res.data).toEqual({ requested: true, id: 77 });
+    expect(res.data).toMatchObject({ requested: true, id: 77 });
     expect(filings()[0]!.body).toMatchObject({ TimeoffTypeId: 13, TimeoffType: "Unpaid", Reason: null });
   });
 
