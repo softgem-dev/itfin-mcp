@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { makeJwt, sec, startHarness, type Harness } from "./harness.js";
-import { leaveRequest, leaveRequestInfo, leaveTypes, me, reopenRequest, workspace } from "./fixtures.js";
+import { leaveRequest, leaveRequestInfo, leaveTypeStats, leaveTypes, me, reopenRequest, workspace } from "./fixtures.js";
 
 let h: Harness;
 afterEach(async () => h?.close());
 
-async function loggedIn(opts: { elicitation?: boolean; settings?: unknown; info?: unknown } = {}) {
+async function loggedIn(opts: { elicitation?: boolean; settings?: unknown; info?: unknown; stats?: unknown } = {}) {
   h = await startHarness({ now: "2026-09-24T09:00:00Z", elicitation: opts.elicitation });
   await h.store.save(makeJwt({ iat: sec("2026-09-24T06:00:00Z"), exp: sec("2026-10-01T06:00:00Z") }));
   h.itfin
     .on("GET /api/v1/auth", { body: me })
     .on(`GET /api/v1/auth/workspaces/${new URL(h.itfin.url).host}`, { body: opts.settings ?? workspace })
     .on("GET /api/v3/timeoff-types/available/2026-09-24/1001", { body: leaveTypes })
+    .on("POST /api/v3/timeoff/stats", { body: opts.stats ?? leaveTypeStats() })
     .on("POST /api/v3/timeoff/request-info", { body: opts.info ?? leaveRequestInfo() })
     .on("POST /api/v2/requests/timeoff", { body: { Id: 77 } });
   return h;
@@ -113,6 +114,62 @@ describe("itfin_request_leave confirmed in chat", () => {
     const reopen = await h.call("itfin_request_reopen", { from: "2026-09-14", to: "2026-09-18", reason: "Forgot to report last week" });
     const res = await h.call("itfin_request_leave", { ...vacation, confirmationToken: reopen.data.confirmationToken });
     expect(res.data.error.code).toBe("CONFIRMATION_INVALID");
+  });
+});
+
+describe("itfin_request_leave for part of a day", () => {
+  const halfDay = { leaveTypeId: 12, from: "2026-09-15", to: "2026-09-15", hours: 4, reason: "Other", comment: "Doctor in the morning" };
+  const partDayInfo = leaveRequestInfo({ requestedDays: 0.5, requestedHours: 4 });
+
+  it("checks and files it with the web form's part-day fields", async () => {
+    await loggedIn({ info: partDayInfo });
+    const res = await h.call("itfin_request_leave", halfDay);
+    expect(res.data).toEqual({ requested: true, id: 77 });
+    expect(h.elicitMessages[0]).toContain("Request Sick leave for 2026-09-15, 4h?");
+    expect(h.itfin.writes()).toMatchObject([
+      { path: "/api/v3/timeoff/stats", body: { employeeId: 1001, timeoffTypeIds: [12], date: "2026-09-24" } },
+      {
+        path: "/api/v3/timeoff/request-info",
+        body: { employeeId: 1001, timeoffId: 12, date: "2026-09-15", dateFrom: "2026-09-15", dateTo: "2026-09-15", isPartDay: true, hours: 4, formattedHours: "04h 00m" },
+      },
+      {
+        path: "/api/v2/requests/timeoff",
+        body: { TimeoffTypeId: 12, TimeoffType: "Sickness", Date: "2026-09-15", DateFrom: "2026-09-15", DateTo: "2026-09-15", IsPartDay: true, FormattedHours: "04h 00m", Hours: 4 },
+      },
+    ]);
+  });
+
+  it("shows the hours in the chat preview and binds the token to them", async () => {
+    await loggedIn({ elicitation: false, info: partDayInfo });
+    const { data } = await h.call("itfin_request_leave", { ...halfDay, hours: 2.5 });
+    expect(data.preview).toMatchObject({ leaveType: "Sick leave", from: "2026-09-15", hours: 2.5, requestedHours: 4, availableDays: 18 });
+    expect(data.instructions).toContain("leaveTypeId, from, to, hours, reason, comment");
+    expect(h.itfin.writes().at(-1)!.body).toMatchObject({ formattedHours: "02h 30m", hours: 2.5 });
+    const res = await h.call("itfin_request_leave", { ...halfDay, hours: 2.5, confirmationToken: data.confirmationToken });
+    expect(res.data).toEqual({ requested: true, id: 77 });
+    expect(filings()).toMatchObject([{ body: { IsPartDay: true, FormattedHours: "02h 30m", Hours: 2.5 } }]);
+  });
+
+  it("rejects a token issued for different hours", async () => {
+    await loggedIn({ elicitation: false, info: partDayInfo });
+    const { data } = await h.call("itfin_request_leave", { ...halfDay, hours: 2.5 });
+    const res = await h.call("itfin_request_leave", { ...halfDay, confirmationToken: data.confirmationToken });
+    expect(res.data.error.code).toBe("CONFIRMATION_INVALID");
+    expect(filings()).toHaveLength(0);
+  });
+
+  it("covers a single day", async () => {
+    await loggedIn();
+    const res = await h.call("itfin_request_leave", { ...halfDay, to: "2026-09-16" });
+    expect(res.data.error.code).toBe("VALIDATION");
+    expect(h.itfin.writes()).toHaveLength(0);
+  });
+
+  it("refuses when the leave type's policy has no part days", async () => {
+    await loggedIn({ stats: leaveTypeStats({ isAllowedToRequestPartDay: false }) });
+    const res = await h.call("itfin_request_leave", halfDay);
+    expect(res.data.error.message).toContain("part of a day");
+    expect(h.itfin.writes().map((r) => r.path)).toEqual(["/api/v3/timeoff/stats"]);
   });
 });
 

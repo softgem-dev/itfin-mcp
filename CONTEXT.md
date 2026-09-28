@@ -46,5 +46,5 @@ A kind of absence the workspace lets the user request, e.g. vacation, sick leave
 _Avoid_: time off type, policy
 
 **Leave request**:
-A user's request to a manager to approve full days of leave of one leave type, with a reason and a comment. Like a reopen request, it is only made after the user explicitly agrees.
+A user's request to a manager to approve full days of leave, or some hours of one day (a part day), of one leave type, with a reason and a comment. Like a reopen request, it is only made after the user explicitly agrees.
 _Avoid_: vacation request, sick note, day-off request

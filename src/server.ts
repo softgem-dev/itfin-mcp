@@ -12,12 +12,14 @@ import { decodeToken } from "./jwt.js";
 import {
   ADDITIONAL_REASONS_SETTING,
   CLOSED_REQUEST_STATUSES,
+  formatHours,
   LEAVE_REQUEST_TYPES,
   leaveReasons,
   toLeaveRequest,
   type RawLeaveRequest,
   type RawLeaveRequestInfo,
   type RawLeaveType,
+  type RawLeaveTypeStat,
 } from "./leave.js";
 import type { TokenStore } from "./tokenStore.js";
 import { reloginReminderAt, todayIn, type DayFlags } from "./workingTime.js";
@@ -617,17 +619,27 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     return requests.filter((r) => LEAVE_REQUEST_TYPES.includes(r.RequestType));
   }
 
-  type LeaveRequestInput = { leaveTypeId: number; from: string; to: string; reason: string | undefined; comment: string };
+  /** `hours` is set for part-day leave, which covers the single day `from` (= `to`). */
+  type LeaveRequestInput = { leaveTypeId: number; from: string; to: string; hours?: number; reason: string | undefined; comment: string };
+
+  /** The web form's part-day fields: the day, and the time off as "04h 00m" and in hours. */
+  function partDayFields(request: LeaveRequestInput) {
+    if (request.hours === undefined) return { date: null, isPartDay: false };
+    const minutes = Math.round(request.hours * 60);
+    return { date: request.from, isPartDay: true, formattedHours: formatHours(minutes), hours: minutes / 60 };
+  }
 
   async function fileLeaveRequest(request: LeaveRequestInput, requestType: string | undefined) {
+    const partDay = partDayFields(request);
     const body = {
       EmployeeId: await employeeId(),
       TimeoffTypeId: request.leaveTypeId,
       TimeoffType: requestType ?? null,
-      Date: null,
+      Date: partDay.date,
       DateFrom: request.from,
       DateTo: request.to,
-      IsPartDay: false,
+      IsPartDay: partDay.isPartDay,
+      ...(partDay.isPartDay ? { FormattedHours: partDay.formattedHours, Hours: partDay.hours } : {}),
       Reason: request.reason ?? null,
       Comment: request.comment,
     };
@@ -685,14 +697,21 @@ export function createItfinServer(deps: ServerDeps): McpServer {
     {
       title: "Request leave",
       description:
-        "Asks the user's manager to approve full days of leave: a day off / vacation, sick leave, paid or unpaid leave. Get leaveTypeId and the allowed reasons from itfin_list_leave_types. " +
-        "Only call this after the user has explicitly asked for the leave. ITFin first checks the request (balance, allowed dates); the result says how many days it counts. " +
+        "Asks the user's manager to approve full or part days of leave: a day off / vacation, sick leave, paid or unpaid leave. Get leaveTypeId and the allowed reasons from itfin_list_leave_types. " +
+        "For part of a day (e.g. 4h off and 4h of work), set hours with from equal to to. " +
+        "Only call this after the user has explicitly asked for the leave. ITFin first checks the request (balance, allowed dates); the result says how many days (or hours, for part days) it counts. " +
         "If the app can show a confirmation form, the user confirms there and the request is filed. Otherwise the result has needsUserConfirmation, a preview and a confirmationToken: " +
         "show the preview to the user, and only if they explicitly agree, call again with the same arguments and the confirmationToken (valid 10 minutes, single use).",
       inputSchema: {
         leaveTypeId: z.number().int(),
         from: isoDate.describe("First day of leave"),
         to: isoDate.describe("Last day of leave (inclusive); same as from for one day"),
+        hours: z
+          .number()
+          .positive()
+          .max(24)
+          .optional()
+          .describe("Part-day leave only: hours off on that one day (from must equal to), e.g. 4 for half a day. Omit for full days."),
         reason: z
           .string()
           .optional()
@@ -706,6 +725,11 @@ export function createItfinServer(deps: ServerDeps): McpServer {
       handle(async () => {
         if (args.to < args.from) throw new ToolError("VALIDATION", "`to` must not be before `from`.");
         if (!args.comment.trim()) throw new ToolError("VALIDATION", "The comment must not be empty.");
+        const partDay = args.hours !== undefined;
+        if (partDay && args.from !== args.to) {
+          throw new ToolError("VALIDATION", "Part-day leave covers a single day: `from` and `to` must be the same.");
+        }
+        if (partDay && Math.round(args.hours! * 60) === 0) throw new ToolError("VALIDATION", "`hours` must be at least one minute.");
         const types = await leaveTypes();
         const type = types.find((t) => t.id === args.leaveTypeId);
         if (!type) {
@@ -720,10 +744,22 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         if (reason !== undefined && type.reasons.length > 0 && !type.reasons.includes(reason)) {
           throw new ToolError("VALIDATION", `"${reason}" is not a reason ITFin accepts for ${type.name}.`, { reasons: type.reasons });
         }
+        if (partDay) {
+          // The web form offers the part-day switch only when the leave type's policy allows it.
+          const { stats } = await itfin.request<{ stats?: RawLeaveTypeStat[] }>("POST", "/v3/timeoff/stats", {
+            body: { employeeId: await employeeId(), timeoffTypeIds: [type.id], date: todayIn(clock.now(), config.timezone) },
+          });
+          if (!stats?.find((s) => s.timeoffTypeId === type.id)?.timeForRequest?.isAllowedToRequestPartDay) {
+            throw new ToolError("VALIDATION", `ITFin does not allow requesting ${type.name} for part of a day.`);
+          }
+        }
+
+        const request: LeaveRequestInput = { leaveTypeId: type.id, from: args.from, to: args.to, ...(partDay && { hours: args.hours }), reason, comment: args.comment };
         const info = await itfin.request<RawLeaveRequestInfo>("POST", "/v3/timeoff/request-info", {
-          body: { employeeId: await employeeId(), timeoffId: type.id, date: null, dateFrom: args.from, dateTo: args.to, isPartDay: false },
+          body: { employeeId: await employeeId(), timeoffId: type.id, dateFrom: args.from, dateTo: args.to, ...partDayFields(request) },
         });
-        const days = { requestedDays: info.requestedDays, availableDays: info.availableDays, minDays: info.minDays };
+        // Balance stays in days; a part-day request is counted in hours.
+        const days = { requestedDays: info.requestedDays, requestedHours: partDay ? info.requestedHours : undefined, availableDays: info.availableDays, minDays: info.minDays };
         if (!info.isAvailableToRequest) {
           throw new ToolError("VALIDATION", `ITFin does not allow requesting ${type.name} for ${args.from} – ${args.to} (e.g. not enough balance or the dates are not allowed).`, days);
         }
@@ -731,14 +767,16 @@ export function createItfinServer(deps: ServerDeps): McpServer {
           throw new ToolError("VALIDATION", `ITFin requires documents attached to a ${type.name} request. Ask the user to file it in the ITFin web app.`, days);
         }
 
-        const request: LeaveRequestInput = { leaveTypeId: type.id, from: args.from, to: args.to, reason, comment: args.comment };
         const period = args.from === args.to ? args.from : `${args.from} – ${args.to}`;
-        const counted = info.requestedDays === undefined ? "" : ` (${info.requestedDays} day${info.requestedDays === 1 ? "" : "s"})`;
+        const counted =
+          partDay ? `, ${args.hours}h`
+          : info.requestedDays === undefined ? ""
+          : ` (${info.requestedDays} day${info.requestedDays === 1 ? "" : "s"})`;
         const consent: Consent = {
           tool: "itfin_request_leave",
           subject: "leave request",
           request,
-          preview: { leaveType: type.name, from: args.from, to: args.to, reason, comment: args.comment, ...days },
+          preview: { leaveType: type.name, from: args.from, to: args.to, hours: args.hours, reason, comment: args.comment, ...days },
           message:
             `Request ${type.name} for ${period}${counted}? Your manager will be asked to approve it.` +
             (reason ? `\nReason: ${reason}` : "") +
