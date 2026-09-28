@@ -2,6 +2,8 @@
 
 Report time and request leave in ITFin by chatting with Claude Code, Codex or Claude Desktop.
 
+An unofficial, community-built tool. It is not made or supported by ITFin.
+
 ## Install (about 2 minutes)
 
 You need macOS, Node.js 22+ and Chrome, Edge, Brave, Arc or Chromium.
@@ -81,3 +83,7 @@ ITFIN_MCP_PACKAGE=$PWD/itfin-mcp-0.1.0.tgz bash scripts/install.sh
 ## Releases
 
 Every merge into `main` publishes to npm ([workflow](.github/workflows/publish.yml)) as the next patch version and tags it `v<version>`. For a minor or major release, raise `version` in `package.json` in the PR.
+
+## License
+
+[MIT](LICENSE)

@@ -9,6 +9,7 @@
     "codex",
     "timesheet"
   ],
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/steven-tailor/itfin-mcp.git"
