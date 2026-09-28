@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues and specs live in GitHub Issues for softgem-dev/itfin-mcp (via `gh`). See `docs/agents/issue-tracker.md`.
+Issues and specs live in GitHub Issues for steven-tailor/itfin-mcp (via `gh`). See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 

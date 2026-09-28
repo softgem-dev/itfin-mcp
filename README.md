@@ -8,7 +8,7 @@ You need macOS, Node.js 22+ and Chrome, Edge, Brave, Arc or Chromium.
 
 1. Run:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash
+   npx itfin-mcp@latest install
    ```
 2. Pick the apps: Claude Code, Codex, Claude Desktop. Space ticks or unticks one, Enter confirms.
 3. Type your company name: `acme` for `https://acme.itfin.io`.
@@ -17,7 +17,9 @@ You need macOS, Node.js 22+ and Chrome, Edge, Brave, Arc or Chromium.
 
 ## Update
 
-Run the same command again. It keeps your apps and settings and asks nothing.
+Run the same command again. It installs the latest version from npm, keeps your apps and settings and asks nothing.
+
+Installs from before the npm package (a git clone in `~/.itfin-mcp`) are replaced on the first update.
 
 If the update changed anything, it stops the ITFin servers that are still running the old version. Then start a new session (in Claude Code, `/mcp` → reconnect itfin also works) and restart Claude Desktop (Cmd+Q, then open it).
 
@@ -33,7 +35,7 @@ ITFin tokens last 7 days and can't be extended. A macOS notification reminds you
 Add flags to the install command to change a setting:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/softgem-dev/itfin-mcp/main/scripts/install.sh | bash -s -- --browser brave --work-start 09:00
+npx itfin-mcp@latest install --browser brave --work-start 09:00
 ```
 
 | Flag | Default | Sets |
@@ -68,3 +70,14 @@ Reopen and leave requests are sent as soon as you ask for them. Your manager sti
 npm test
 npm run typecheck
 ```
+
+To try a local build with the installer, pack it and point the installer at the tarball:
+
+```bash
+npm pack
+ITFIN_MCP_PACKAGE=$PWD/itfin-mcp-0.1.0.tgz bash scripts/install.sh
+```
+
+## Releases
+
+Every merge into `main` publishes to npm ([workflow](.github/workflows/publish.yml)) as the next patch version and tags it `v<version>`. For a minor or major release, raise `version` in `package.json` in the PR.

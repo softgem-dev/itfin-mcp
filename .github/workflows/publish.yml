@@ -1,0 +1,56 @@
+# Publishes every merge into main to npm as itfin-mcp. The version is the next patch after the one
+# on npm, unless package.json asks for a higher one (bump it there for a minor or major release).
+# npm authenticates this workflow with trusted publishing (OIDC), so there is no token secret.
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # push the version tag
+  id-token: write # npm trusted publishing and provenance
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Pick the version
+        id: version
+        run: |
+          published="$(npm view itfin-mcp version 2>/dev/null || echo 0.0.0)"
+          local="$(node -p 'require("./package.json").version')"
+          next="$(node -e '
+            const [published, local] = process.argv.slice(1).map((v) => v.split(".").map(Number));
+            const diff = local.map((n, i) => n - published[i]).find((d) => d !== 0) ?? 0;
+            console.log(diff > 0 ? local.join(".") : [published[0], published[1], published[2] + 1].join("."));
+          ' "$published" "$local")"
+          echo "npm has $published, package.json has $local, publishing $next"
+          npm version "$next" --no-git-tag-version --allow-same-version
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - run: npm publish --access public
+
+      - name: Tag the release
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"

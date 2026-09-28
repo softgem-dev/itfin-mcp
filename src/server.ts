@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -24,6 +25,9 @@ import {
 } from "./leave.js";
 import type { TokenStore } from "./tokenStore.js";
 import { reloginReminderAt, todayIn, type DayFlags } from "./workingTime.js";
+
+// dist/ and src/ both sit next to package.json. CI sets the version when it publishes.
+const PACKAGE_VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
 /** A token this close to expiry is treated as expired, to absorb clock skew. */
 export const EXPIRY_SKEW_MS = 5 * 60 * 1000;
@@ -149,7 +153,7 @@ function toEntry(e: RawEntry) {
 
 export function createItfinServer(deps: ServerDeps): McpServer {
   const { config, clock, tokenStore } = deps;
-  const server = new McpServer({ name: "itfin-mcp", version: "0.1.0" }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: "itfin-mcp", version: PACKAGE_VERSION }, { instructions: SERVER_INSTRUCTIONS });
 
   type TokenState =
     | { valid: true; token: string; email?: string; expiresAt: Date }
