@@ -597,6 +597,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
       title: "Request leave",
       description:
         "Asks the user's manager to approve full or part days of leave: a day off / vacation, sick leave, paid or unpaid leave. Get leaveTypeId and the allowed reasons from itfin_list_leave_types. " +
+        "For sick leave, use the leave type with requestType Sickness; if the workspace has none, use the type that lists a sick-leave reason (e.g. Vacation with reason \"SickLeave\") and file it that way without asking. " +
         "For part of a day (e.g. 4h off and 4h of work), set hours with from equal to to. " +
         "Call it when the user asks for the leave in the conversation; that is the go-ahead, with no separate confirmation step. " +
         "ITFin first checks the request (balance, allowed dates), then it is filed. The result says how many days (or hours, for part days) it counts.",
@@ -615,7 +616,7 @@ export function createItfinServer(deps: ServerDeps): McpServer {
         reason: z
           .string()
           .optional()
-          .describe("One of the leave type's reasons from itfin_list_leave_types, matching what the user said. If the user gave no hint, use \"Other\" for sick leave and the closest fit otherwise."),
+          .describe("One of the leave type's reasons from itfin_list_leave_types, matching what the user said. For sick leave filed under another type, use its sick-leave reason (e.g. \"SickLeave\"). If the user gave no hint, use \"Other\" for a Sickness type and the closest fit otherwise."),
         comment: z.string().describe("Comment for the manager. If the user didn't give one, write a short neutral one in the user's language (e.g. \"Vacation\" or \"Sick, will be back on Monday\")."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
