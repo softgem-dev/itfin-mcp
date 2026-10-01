@@ -1,7 +1,7 @@
 {
   "name": "itfin-mcp",
   "version": "0.1.0",
-  "description": "Local MCP server for ITFin: projects, time entries and ITFin token lifecycle",
+  "description": "ITFin for AI agents, as a local MCP server or a CLI: projects, time entries, leave and reopen requests",
   "keywords": [
     "mcp",
     "itfin",

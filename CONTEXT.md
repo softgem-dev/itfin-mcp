@@ -1,8 +1,14 @@
 # ITFin Reporting Assistant
 
-A local MCP server that gives agents authenticated access to one user's ITFin workspace: projects, time entries and leave requests. What to report, when, and how is decided by the calling agent, not by this server.
+A local tool, used as an MCP server or a CLI, that gives agents authenticated access to one user's ITFin workspace: projects, time entries and leave requests. What to report, when, and how is decided by the calling agent, not by this tool.
 
 ## Language
+
+### Installation
+
+**Mode**:
+How one app reaches ITFin: **MCP mode** (the app runs the tool as an MCP server) or **CLI mode** (the app's agent runs it as shell commands). Each app has exactly one mode; Claude Desktop is always in MCP mode.
+_Avoid_: install type, flavour, interface
 
 ### Authorization
 
