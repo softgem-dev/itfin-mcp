@@ -38,7 +38,7 @@ CLI mode installs:
 
 - `~/.local/bin/itfin`, the command (`itfin --help` lists the commands, `itfin <command> --help` their flags);
 - the `itfin` skill in `~/.claude/skills` (Claude Code) or `~/.agents/skills` (Codex);
-- permission to run read-only commands without asking: allow rules in `~/.claude/settings.json`, or `~/.codex/rules/itfin.rules` for Codex, which also lets them reach ITFin from the Codex sandbox. Writes, leave and reopen requests and `itfin login` still ask. `--no-permissions` skips this.
+- permission to run read-only commands without asking: allow rules in `~/.claude/settings.json`, or `~/.codex/rules/itfin.rules` for Codex, which also lets them reach ITFin from the Codex sandbox. Writes, leave and reopen requests and `itfin login` still ask. `--no-permissions` skips this, and updates remember it until you pass `--permissions`.
 
 ## Log in (once a week)
 
@@ -59,7 +59,7 @@ npx itfin-mcp@latest install --browser brave --work-start 09:00
 |---|---|---|
 | `--clients claude,codex,desktop` | asked | Apps to install for |
 | `--mode claude=cli,codex=mcp` | `mcp` | Mode per app: `mcp` or `cli` |
-| `--no-permissions` | | Don't allow read-only `itfin` commands without asking |
+| `--no-permissions` / `--permissions` | `--permissions` | Whether CLI mode allows read-only `itfin` commands without asking |
 | `--company acme` | asked | Workspace `https://acme.itfin.io` |
 | `--url <address>` | | Workspace not on `itfin.io` |
 | `--browser` | `chrome` | `chrome`, `edge`, `brave`, `arc`, `chromium` or a path to the browser |

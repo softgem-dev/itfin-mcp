@@ -1,7 +1,7 @@
 // JSON edits for install.sh. Usage: node install-helpers.mjs <command> ...
-//   read-config <config>                     prints url, browser, workStart, timezone and apps as KEY=value
-//   write-config <config> <url> <browser> <workStart> <timezone> <id=mode>...
-//                                            saves settings and app modes, keeps what the installer added
+//   read-config <config>                     prints url, browser, workStart, timezone, permissions and apps as KEY=value
+//   write-config <config> <url> <browser> <workStart> <timezone> <permissions yes|no> <id=mode>...
+//                                            saves settings, app modes and the permissions choice; keeps what the installer added
 //   claude-permissions <settings> <config> [command...]
 //                                            replaces the Bash(itfin <command>:*) allow rules this installer
 //                                            added before with rules for the given commands; prints the new ones
@@ -26,14 +26,15 @@ switch (command) {
   case "read-config": {
     const { json } = readJson(args[0]);
     for (const key of ["url", "browser", "workStart", "timezone"]) if (json[key]) console.log(`${key}=${json[key]}`);
+    if (typeof json.allowReadOnlyCommands === "boolean") console.log(`permissions=${json.allowReadOnlyCommands ? "yes" : "no"}`);
     console.log(`apps=${Object.entries(json.apps ?? {}).map(([app, mode]) => `${app}=${mode}`).join(" ")}`);
     break;
   }
   case "write-config": {
-    const [file, url, browser, workStart, timezone, ...apps] = args;
+    const [file, url, browser, workStart, timezone, permissions, ...apps] = args;
     const { json } = readJson(file);
     const settings = Object.fromEntries(Object.entries({ url, browser, workStart, timezone }).filter(([, v]) => v));
-    writeJson(file, { ...settings, apps: Object.fromEntries(apps.map((a) => a.split("="))), added: json.added ?? {} });
+    writeJson(file, { ...settings, apps: Object.fromEntries(apps.map((a) => a.split("="))), allowReadOnlyCommands: permissions !== "no", added: json.added ?? {} });
     break;
   }
   case "claude-permissions": {
